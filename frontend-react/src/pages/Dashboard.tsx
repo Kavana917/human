@@ -1,121 +1,235 @@
-import { useEffect, useRef, useState } from 'react';
-import * as THREE from 'three';
-import { supabase } from '../supabaseClient';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { supabase } from '../supabaseClient';
+import { ArrowLeft, User, Activity, Edit2, Check, X, Loader2 } from 'lucide-react';
 
 export default function Dashboard() {
     const navigate = useNavigate();
-    const mountRef = useRef<HTMLDivElement>(null);
-    const [acc, setAcc] = useState({ x: 0, y: 0, z: 0 });
-    const [gyro, setGyro] = useState({ x: 0, y: 0, z: 0 });
-    const [pitch, setPitch] = useState(0);
-    const [roll, setRoll] = useState(0);
-
-    const handleLogout = async () => {
-        await supabase.auth.signOut();
-        navigate('/login');
-    };
+    const [profile, setProfile] = useState<any>(null);
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
+    
+    // Edit state
+    const [isEditing, setIsEditing] = useState(false);
+    const [editForm, setEditForm] = useState<any>({});
 
     useEffect(() => {
         let isMounted = true;
-
-        // Check onboarding completion just in case
+        
         supabase.auth.getUser().then(({ data: { user } }) => {
             if (user) {
-                supabase.from('profiles').select('onboarding_complete').eq('id', user.id).single()
+                supabase.from('profiles').select('*').eq('id', user.id).single()
                     .then(({ data }) => {
-                        if (isMounted && (!data || !data.onboarding_complete)) {
-                            navigate('/onboarding');
+                        if (isMounted) {
+                            setProfile({ email: user.email, ...data });
+                            setEditForm({
+                                height_cm: data.height_cm || '',
+                                weight_kg: data.weight_kg || '',
+                                activity_level: data.activity_level || 'sedentary',
+                                has_injury: data.has_injury || false,
+                                injury_notes: data.injury_notes || ''
+                            });
+                            setLoading(false);
                         }
                     });
+            } else {
+                if (isMounted) navigate('/login');
             }
         });
 
-        // 3D Scene Code
-        if (!mountRef.current) return;
-        const currentRef = mountRef.current;
-
-        const scene = new THREE.Scene();
-        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        const renderer = new THREE.WebGLRenderer({ antialias: true });
-        
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        currentRef.appendChild(renderer.domElement);
-
-        const geometry = new THREE.BoxGeometry(3.5, 0.4, 2);
-        const materials = [
-            new THREE.MeshBasicMaterial({color: 0xff0000}), 
-            new THREE.MeshBasicMaterial({color: 0xff8800}), 
-            new THREE.MeshBasicMaterial({color: 0x0000ff}), 
-            new THREE.MeshBasicMaterial({color: 0x555555}), 
-            new THREE.MeshBasicMaterial({color: 0x00ff00}), 
-            new THREE.MeshBasicMaterial({color: 0x0088ff})  
-        ];
-        const board = new THREE.Mesh(geometry, materials);
-        scene.add(board);
-        camera.position.z = 6;
-
-        let reqId: number;
-
-        const animate = async () => {
-            if (!isMounted) return;
-            reqId = requestAnimationFrame(animate);
-
-            try {
-                const response = await fetch('http://localhost:7777/data');
-                if (response.ok) {
-                    const data = await response.json();
-                    
-                    board.rotation.x = data.pitch;
-                    board.rotation.z = -data.roll;
-
-                    setAcc({ x: data.ax, y: data.ay, z: data.az });
-                    setGyro({ x: data.gx, y: data.gy, z: data.gz });
-                    setPitch(data.pitch);
-                    setRoll(data.roll);
-                }
-            } catch (err) {
-                // Ignore fetch errors to avoid spamming console when server is down
-            }
-
-            renderer.render(scene, camera);
-        };
-
-        animate();
-
-        const handleResize = () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        };
-        window.addEventListener('resize', handleResize);
-
-        return () => {
-            isMounted = false;
-            cancelAnimationFrame(reqId);
-            window.removeEventListener('resize', handleResize);
-            if (currentRef) {
-                currentRef.removeChild(renderer.domElement);
-            }
-            geometry.dispose();
-            renderer.dispose();
-        };
+        return () => { isMounted = false; };
     }, [navigate]);
 
+    const handleEditToggle = () => {
+        if (!isEditing) {
+            // reset form to current profile
+            setEditForm({
+                height_cm: profile.height_cm || '',
+                weight_kg: profile.weight_kg || '',
+                activity_level: profile.activity_level || 'sedentary',
+                has_injury: profile.has_injury || false,
+                injury_notes: profile.injury_notes || ''
+            });
+        }
+        setIsEditing(!isEditing);
+    };
+
+    const handleSave = async () => {
+        setSaving(true);
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) {
+                const updates = {
+                    height_cm: parseFloat(editForm.height_cm),
+                    weight_kg: parseFloat(editForm.weight_kg),
+                    activity_level: editForm.activity_level,
+                    has_injury: editForm.has_injury,
+                    injury_notes: editForm.has_injury ? editForm.injury_notes : null,
+                    updated_at: new Date().toISOString()
+                };
+
+                const { error } = await supabase.from('profiles').update(updates).eq('id', user.id);
+                if (error) throw error;
+                
+                setProfile({ ...profile, ...updates });
+                setIsEditing(false);
+            }
+        } catch (err) {
+            console.error("Failed to update profile", err);
+            alert("Failed to update profile.");
+        } finally {
+            setSaving(false);
+        }
+    };
+
     return (
-        <div className="dashboard-container">
-            <div className="dashboard-ui">
-                <h2>IMU LIVE TELEMETRY</h2>
-                <div>ACCEL X/Y/Z: <span className="val">{acc.x}, {acc.y}, {acc.z}</span></div>
-                <div>GYRO X/Y/Z: <span className="val">{gyro.x}, {gyro.y}, {gyro.z}</span></div>
-                <hr />
-                <div>PITCH: <span className="val">{(pitch * 180 / Math.PI).toFixed(2)}</span>°</div>
-                <div>ROLL: <span className="val">{(roll * 180 / Math.PI).toFixed(2)}</span>°</div>
-                <hr />
-                <button onClick={handleLogout} className="logout-btn-dash">LOGOUT</button>
-            </div>
+        <div className="page-container">
+            <header className="page-header">
+                <button onClick={() => navigate('/')} className="btn-icon">
+                    <ArrowLeft size={20} />
+                    <span>Back to Home</span>
+                </button>
+                <h1 className="page-title">Dashboard</h1>
+                <p className="page-subtitle">View your profile details and full motion evaluation history.</p>
+            </header>
             
-            <div ref={mountRef} style={{ width: '100vw', height: '100vh' }}></div>
+            {loading ? (
+                <div style={{ padding: '40px 0', color: '#666' }}>Loading data...</div>
+            ) : (
+                <div className="dashboard-content">
+                    <section className="profile-section">
+                        <div className="section-header" style={{ justifyContent: 'space-between', display: 'flex', alignItems: 'center', marginBottom: '24px', paddingBottom: '16px', borderBottom: '1px solid #e5e5e5', color: '#111' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <User size={24} />
+                                <h2 style={{ fontSize: '1.5rem', fontWeight: 500, letterSpacing: '-0.02em', margin: 0 }}>Profile Details</h2>
+                            </div>
+                            {!isEditing ? (
+                                <button onClick={handleEditToggle} className="btn-icon" style={{ margin: 0 }}>
+                                    <Edit2 size={16} />
+                                    <span>Edit</span>
+                                </button>
+                            ) : (
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                    <button onClick={handleEditToggle} className="btn-icon" style={{ margin: 0, color: '#dc2626' }}>
+                                        <X size={16} />
+                                        <span>Cancel</span>
+                                    </button>
+                                    <button onClick={handleSave} className="btn-icon" style={{ margin: 0, color: '#16a34a' }} disabled={saving}>
+                                        {saving ? <Loader2 size={16} className="btn-loader" /> : <Check size={16} />}
+                                        <span>Save</span>
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                        <div className="profile-grid">
+                            <div className="profile-item">
+                                <span className="label">Username</span>
+                                <span className="value">{profile?.username || 'N/A'}</span>
+                            </div>
+                            <div className="profile-item">
+                                <span className="label">Email</span>
+                                <span className="value">{profile?.email || 'N/A'}</span>
+                            </div>
+                            <div className="profile-item">
+                                <span className="label">Age</span>
+                                <span className="value">{profile?.age || 'N/A'}</span>
+                            </div>
+
+                            {/* Editable Fields Below */}
+                            <div className="profile-item">
+                                <span className="label">Height (cm)</span>
+                                {isEditing ? (
+                                    <input 
+                                        type="number" 
+                                        style={{ marginTop: '8px', padding: '12px', border: '1px solid #111', fontFamily: 'inherit', outline: 'none' }}
+                                        value={editForm.height_cm} 
+                                        onChange={e => setEditForm({...editForm, height_cm: e.target.value})} 
+                                    />
+                                ) : (
+                                    <span className="value">{profile?.height_cm || '-'}</span>
+                                )}
+                            </div>
+                            <div className="profile-item">
+                                <span className="label">Weight (kg)</span>
+                                {isEditing ? (
+                                    <input 
+                                        type="number" 
+                                        style={{ marginTop: '8px', padding: '12px', border: '1px solid #111', fontFamily: 'inherit', outline: 'none' }}
+                                        value={editForm.weight_kg} 
+                                        onChange={e => setEditForm({...editForm, weight_kg: e.target.value})} 
+                                    />
+                                ) : (
+                                    <span className="value">{profile?.weight_kg || '-'}</span>
+                                )}
+                            </div>
+                            <div className="profile-item">
+                                <span className="label">Activity Level</span>
+                                {isEditing ? (
+                                    <div className="input-wrapper" style={{ marginTop: '8px', border: '1px solid #111' }}>
+                                        <select 
+                                            style={{ padding: '12px 12px 12px 12px', width: '100%', fontFamily: 'inherit', border: 'none', appearance: 'none', outline: 'none' }}
+                                            value={editForm.activity_level}
+                                            onChange={e => setEditForm({...editForm, activity_level: e.target.value})}
+                                        >
+                                            <option value="sedentary">Sedentary</option>
+                                            <option value="light">Lightly Active</option>
+                                            <option value="moderate">Moderately Active</option>
+                                            <option value="active">Very Active</option>
+                                            <option value="athlete">Athlete</option>
+                                        </select>
+                                    </div>
+                                ) : (
+                                    <span className="value" style={{ textTransform: 'capitalize' }}>
+                                        {profile?.activity_level ? profile.activity_level.replace('-',' ') : '-'}
+                                    </span>
+                                )}
+                            </div>
+                            
+                            <div className="profile-item" style={{ gridColumn: '1 / -1' }}>
+                                <span className="label">Injury / Notes</span>
+                                {isEditing ? (
+                                    <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                                            <input 
+                                                type="checkbox" 
+                                                checked={editForm.has_injury} 
+                                                onChange={e => setEditForm({...editForm, has_injury: e.target.checked})} 
+                                                style={{ width: '18px', height: '18px', accentColor: '#111' }}
+                                            />
+                                            I have an injury or condition
+                                        </label>
+                                        {editForm.has_injury && (
+                                            <textarea 
+                                                style={{ padding: '12px', border: '1px solid #111', minHeight: '80px', fontFamily: 'inherit', outline: 'none', resize: 'vertical' }}
+                                                value={editForm.injury_notes}
+                                                onChange={e => setEditForm({...editForm, injury_notes: e.target.value})}
+                                                placeholder="Describe your condition..."
+                                            />
+                                        )}
+                                    </div>
+                                ) : (
+                                    <span className="value" style={{ fontSize: '1rem', marginTop: '4px', fontWeight: 400, color: '#333' }}>
+                                        {profile?.has_injury ? profile.injury_notes : 'None reported.'}
+                                    </span>
+                                )}
+                            </div>
+                        </div>
+                    </section>
+
+                    <section className="results-section">
+                        <div className="section-header">
+                            <Activity size={24} />
+                            <h2>Previous Test Results</h2>
+                        </div>
+                        
+                        <div className="results-list">
+                            <div style={{ padding: '48px 32px', textAlign: 'center', background: '#fafafa', border: '1px dashed #e5e5e5', color: '#666', fontFamily: 'inherit' }}>
+                                No previous test records available.
+                            </div>
+                        </div>
+                    </section>
+                </div>
+            )}
         </div>
     );
 }

@@ -1,0 +1,21 @@
+Human Movement Functional Assessment and Analysis System using IoT and AI
+
+This project presents the design and development of an intelligent system for quantitative analysis of human movement using wearable sensors, Internet of Things (IoT), and Artificial Intelligence (AI). The system aims to bridge the gap between traditional subjective movement assessment and the need for objective, real-time, and scalable evaluation of functional mobility.
+
+The proposed solution utilizes wearable Inertial Measurement Units (IMUs) to capture motion data such as acceleration and angular velocity from different body segments. These sensors are interfaced with an ESP32 microcontroller, which processes the data and transmits it wirelessly to a backend server. The backend system performs further analysis, computes meaningful biomechanical metrics, and stores the data for visualization and evaluation.
+
+The system evaluates movement based on three key parameters:
+
+Movement Assessment (Range of Motion): Measures the maximum angle achieved during a movement and compares it with reference functional ranges based on demographic profiles.
+Stability Assessment: Evaluates the user’s ability to maintain specific joint positions with minimal variation, indicating control and neuromuscular stability.
+Speed Assessment: Measures how efficiently a user can perform repeated movements, reflecting coordination and functional performance.
+
+These metrics are analyzed against predefined reference profiles derived from age, gender, and body composition to generate a functional movement score. The system provides real-time feedback and comparative insights through a web-based dashboard, enabling users to understand their performance relative to expected standards.
+
+Unlike existing solutions that are either expensive, environment-dependent, or limited to basic activity tracking, this system offers a low-cost, portable, and data-driven alternative capable of delivering meaningful insights into movement quality. It is designed to function outside laboratory settings, making it suitable for real-world applications.
+
+The system has potential applications in physiotherapy and rehabilitation, where it can assist in monitoring recovery and ensuring correct movement execution. It can also be used in workplace ergonomics to identify inefficient or risky movement patterns, in sports and fitness for performance evaluation, and in elderly care for monitoring mobility decline.
+
+It is important to note that the system is intended as an assistive and monitoring tool and does not replace clinical diagnosis or professional medical evaluation.
+
+Overall, this project demonstrates how the integration of IoT and AI can enable accessible, objective, and scalable human movement analysis, opening pathways for innovation in healthcare, fitness, and industrial safety.
