@@ -819,3 +819,9 @@ input[type="number"] {
         aspect-ratio: 16/9;
     }
 }
+
+/* ─── Stability Test Countdown Animation ───────────────────── */
+@keyframes blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0.3; }
+}

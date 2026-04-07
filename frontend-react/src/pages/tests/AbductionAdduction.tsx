@@ -196,9 +196,20 @@ interface ChartData {
             sample_count: number;
         };
     };
+    // Speed test specific fields
+    speedPhase?: 'countdown' | 'active' | 'complete';
+    speedProgress?: number;
+    speedRepTimes?: number[];
+    speedConsistency?: number | null;
+    speedTotalReps?: number;
+    speedTestComplete?: boolean;
+    speedUserMaxAngle?: number;
+    speedRepsPerMinute?: number;
+    currentAngle?: number;
 }
 
 export default function AbductionAdduction() {
+
     const navigate = useNavigate();
     const [activeTab, setActiveTab] = useState('rom');
     const [isRecording, setIsRecording] = useState(false);
@@ -213,6 +224,11 @@ export default function AbductionAdduction() {
         // Prevent stability test without ROM data
         if (activeTab === 'stability' && !romCompleted) {
             alert('Please complete the ROM test first before doing the stability test.');
+            return;
+        }
+        // Prevent speed test without ROM data
+        if (activeTab === 'speed' && !romCompleted) {
+            alert('Please complete the ROM test first before doing the speed test.');
             return;
         }
         const newState = !isRecording;
@@ -473,32 +489,153 @@ export default function AbductionAdduction() {
             return <Line data={data} options={options} />;
         }
         else if (activeTab === 'speed') {
-            const data = {
-                labels: chartData.bins || [],
-                datasets: [
-                    {
-                        label: 'Reps',
-                        data: chartData.reps || [],
-                        backgroundColor: 'rgba(147, 112, 219, 0.8)',
-                        borderColor: 'mediumpurple',
-                        borderWidth: 1
-                    }
-                ]
-            };
+            // Show real-time angle line graph during test, bar chart after completion
+            if (!chartData.speedTestComplete) {
+                // Real-time angle line graph during test
+                const maxAngle = chartData.speedUserMaxAngle || 150;
+                const peakThreshold = Math.max(90, maxAngle - 10);  // Must exceed this for peak
+                const enterBaselineThreshold = 5;   // Must return near base to complete rep
+                const leaveBaselineThreshold = 15;   // Must leave base to start rep
+                
+                const data = {
+                    labels: chartData.times?.map((t: number) => t.toFixed(1)) || [],
+                    datasets: [
+                        {
+                            label: 'Arm Angle',
+                            data: chartData.rolls || [],
+                            borderColor: chartData.speedPhase === 'active' ? '#22c55e' : '#f59e0b',
+                            backgroundColor: chartData.speedPhase === 'active' ? 'rgba(34, 197, 94, 0.1)' : 'rgba(245, 158, 11, 0.1)',
+                            fill: true,
+                            tension: 0.2,
+                            pointRadius: 0,
+                            pointHoverRadius: 4,
+                            borderWidth: 2
+                        }
+                    ]
+                };
 
-            const options = {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    title: { display: true, text: "Speed: Reps per unit time (3s bins)", font: { size: 14 } },
-                    legend: { display: false }
-                },
-                scales: {
-                    y: { title: { display: true, text: 'Reps' }, beginAtZero: true, ticks: { stepSize: 1 } },
-                    x: { title: { display: true, text: 'Time Window' } }
-                }
-            };
-            return <Bar data={data} options={options} />;
+                const options: ChartOptions<'line'> = {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: { duration: 0 },
+                    plugins: {
+                        title: { 
+                            display: true, 
+                            text: chartData.speedPhase === 'countdown' 
+                                ? '🔴 Get Ready! Countdown in progress...' 
+                                : `🟢 Test Active! Reps: ${chartData.speedTotalReps || 0}`, 
+                            font: { size: 14, weight: 'bold' },
+                            color: chartData.speedPhase === 'active' ? '#166534' : '#92400e'
+                        },
+                        legend: { display: false },
+                        annotation: {
+                            annotations: {
+                                peakLine: {
+                                    type: 'line',
+                                    yMin: peakThreshold,
+                                    yMax: peakThreshold,
+                                    borderColor: '#22c55e',
+                                    borderWidth: 2,
+                                    borderDash: [5, 5],
+                                    label: {
+                                        display: true,
+                                        content: `Peak (≥${peakThreshold.toFixed(0)}°)`,
+                                        position: 'start',
+                                        backgroundColor: 'rgba(34, 197, 94, 0.8)',
+                                        color: 'white',
+                                        font: { size: 10 }
+                                    }
+                                },
+                                leaveLine: {
+                                    type: 'line',
+                                    yMin: leaveBaselineThreshold,
+                                    yMax: leaveBaselineThreshold,
+                                    borderColor: '#f59e0b',
+                                    borderWidth: 1,
+                                    borderDash: [3, 3],
+                                    label: {
+                                        display: true,
+                                        content: `Base exit (> ${leaveBaselineThreshold}°)`,
+                                        position: 'end',
+                                        backgroundColor: 'rgba(245, 158, 11, 0.7)',
+                                        color: 'white',
+                                        font: { size: 9 }
+                                    }
+                                },
+                                enterLine: {
+                                    type: 'line',
+                                    yMin: enterBaselineThreshold,
+                                    yMax: enterBaselineThreshold,
+                                    borderColor: '#ef4444',
+                                    borderWidth: 2,
+                                    borderDash: [5, 5],
+                                    label: {
+                                        display: true,
+                                        content: `Base return (<= ${enterBaselineThreshold}°)`,
+                                        position: 'start',
+                                        backgroundColor: 'rgba(239, 68, 68, 0.8)',
+                                        color: 'white',
+                                        font: { size: 10 }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: { 
+                            title: { display: true, text: 'Arm Angle (degrees)' },
+                            min: 0,
+                            max: Math.max(maxAngle + 20, 180)
+                        },
+                        x: { 
+                            title: { display: true, text: 'Time (s)' }, 
+                            ticks: { maxTicksLimit: 10 } 
+                        }
+                    }
+                };
+                return <Line data={data} options={options} />;
+            } else {
+                // 5-second interval bar chart after test completion
+                const data = {
+                    labels: chartData.bins || [],
+                    datasets: [
+                        {
+                            label: 'Reps per 5s',
+                            data: chartData.reps || [],
+                            backgroundColor: (chartData.reps || []).map((r: number) => 
+                                r >= 4 ? 'rgba(34, 197, 94, 0.8)' : 
+                                r >= 2 ? 'rgba(245, 158, 11, 0.8)' : 
+                                'rgba(239, 68, 68, 0.8)'
+                            ),
+                            borderColor: 'rgba(107, 114, 128, 0.5)',
+                            borderWidth: 1
+                        }
+                    ]
+                };
+
+                const options = {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: { 
+                            display: true, 
+                            text: `Speed Test Complete: ${chartData.speedTotalReps || 0} total reps in 30 seconds`, 
+                            font: { size: 14, weight: 'bold' as const }
+                        },
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: { 
+                            title: { display: true, text: 'Reps' }, 
+                            beginAtZero: true, 
+                            ticks: { stepSize: 1 },
+                            max: Math.max(...(chartData.reps || [0]), 5)
+                        },
+                        x: { title: { display: true, text: 'Time Window' } }
+                    }
+                };
+                return <Bar data={data} options={options} />;
+            }
         }
         return null;
     };
@@ -557,6 +694,54 @@ export default function AbductionAdduction() {
                         </div>
                     )}
 
+                    {/* Speed Test Instructions */}
+                    {activeTab === 'speed' && !isRecording && (
+                        <div style={{ 
+                            padding: '24px', 
+                            background: '#fff', 
+                            border: '1px solid #e5e5e5',
+                            borderRadius: '8px',
+                            marginBottom: '20px',
+                            boxShadow: '0 4px 12px rgba(0,0,0,0.02)'
+                        }}>
+                            <h3 style={{ margin: '0 0 16px 0', fontSize: '1.1rem', fontWeight: 600, color: '#111' }}>
+                                📋 Instructions for Speed Test
+                            </h3>
+                            {!romCompleted && (
+                                <div style={{ 
+                                    padding: '12px 16px', 
+                                    background: '#fef2f2', 
+                                    border: '1px solid #fca5a5',
+                                    borderRadius: '6px', 
+                                    marginBottom: '16px',
+                                    fontSize: '0.9rem', 
+                                    color: '#991b1b' 
+                                }}>
+                                    <strong>⚠️ ROM Test Required:</strong> Please complete the ROM test first before attempting the speed test.
+                                </div>
+                            )}
+                            <ol style={{ margin: 0, paddingLeft: '20px', fontSize: '0.95rem', color: '#333', lineHeight: '1.6' }}>
+                                <li style={{ marginBottom: '8px' }}>Click "Start Recording" to begin the speed test</li>
+                                <li style={{ marginBottom: '8px' }}>During the <strong>5-second countdown</strong>, keep your arm down and get ready</li>
+                                <li style={{ marginBottom: '8px' }}>When the test starts, perform <strong>as many full reps as possible in 30 seconds</strong></li>
+                                <li style={{ marginBottom: '8px' }}>Each rep: Arm down → Raise to peak → Return to down position</li>
+                                <li>Test completes automatically and shows your results</li>
+                            </ol>
+                            <div style={{ marginTop: '16px', padding: '12px 16px', background: '#f0fdf4', borderRadius: '6px', fontSize: '0.9rem', color: '#166534', border: '1px solid #86efac' }}>
+                                <strong>🎯 Rep Detection:</strong><br/>
+                                • <span style={{color: '#f59e0b'}}>Start rep:</span> Go above 35°<br/>
+                                • <span style={{color: '#22c55e'}}>Peak:</span> Reach ≥{(chartData?.speedUserMaxAngle || 150) - 25}° (max: {chartData?.speedUserMaxAngle?.toFixed(0) || 'N/A'}°)<br/>
+                                • <span style={{color: '#ef4444'}}>Complete rep:</span> Return below 20°<br/>
+                                • <strong>One rep = Down → Up (hit peak) → Back down</strong>
+                            </div>
+                            <div style={{ marginTop: '12px', padding: '12px 16px', background: '#f8f8f8', borderRadius: '6px', fontSize: '0.9rem', color: '#111', border: '1px solid #e5e5e5' }}>
+                                <strong>📊 Scoring:</strong><br/>
+                                • ≥20 reps = Excellent | 15-19 reps = Good | {'<'}15 reps = Needs Work<br/>
+                                • Consistency {'<'}0.5s = Very Consistent | 0.5-1.0s = Consistent | {'>'}1.0s = Inconsistent
+                            </div>
+                        </div>
+                    )}
+
                     {/* Stability Test Instructions */}
                     {activeTab === 'stability' && !isRecording && (
                         <div style={{ 
@@ -585,14 +770,14 @@ export default function AbductionAdduction() {
                             )}
                             <ol style={{ margin: 0, paddingLeft: '20px', fontSize: '0.95rem', color: '#333', lineHeight: '1.6' }}>
                                 <li style={{ marginBottom: '8px' }}>Click "Start Recording" to begin the 4-point stability test</li>
-                                <li style={{ marginBottom: '8px' }}>Raise your arm to 45° and hold steady when prompted (3 seconds)</li>
-                                <li style={{ marginBottom: '8px' }}>Move to 90° and hold steady when prompted (3 seconds)</li>
-                                <li style={{ marginBottom: '8px' }}>Move to 135° and hold steady when prompted (3 seconds)</li>
-                                <li style={{ marginBottom: '8px' }}>Move to your maximum angle and hold steady when prompted (3 seconds)</li>
+                                <li style={{ marginBottom: '8px' }}>Raise your arm to 45° and hold steady when prompted (5 seconds countdown + 5 seconds hold)</li>
+                                <li style={{ marginBottom: '8px' }}>Move to 90° and hold steady when prompted (5 seconds countdown + 5 seconds hold)</li>
+                                <li style={{ marginBottom: '8px' }}>Move to 135° and hold steady when prompted (5 seconds countdown + 5 seconds hold)</li>
+                                <li style={{ marginBottom: '8px' }}>Move to your maximum angle and hold steady when prompted (5 seconds countdown + 5 seconds hold)</li>
                                 <li>Test will complete automatically after all 4 positions</li>
                             </ol>
                             <div style={{ marginTop: '16px', padding: '12px 16px', background: '#f8f8f8', borderRadius: '6px', fontSize: '0.9rem', color: '#111', border: '1px solid #e5e5e5' }}>
-                                <strong>Stability Metrics:</strong> {'<1° (Very Stable) | 1-3° (Stable) | >3° (Unstable)'}
+                                <strong>Stability Metrics:</strong> {'<2° (Very Stable) | 2-4° (Stable) | >4° (Unstable)'}
                             </div>
                         </div>
                     )}
@@ -644,6 +829,121 @@ export default function AbductionAdduction() {
                             </div>
                         )}
 
+                        {/* Speed Test Status Display */}
+                        {activeTab === 'speed' && isRecording && chartData && (
+                            <div style={{ 
+                                padding: '12px 16px', 
+                                background: chartData.speedPhase === 'countdown' ? '#fffbeb' : 
+                                           chartData.speedPhase === 'active' ? '#f0fdf4' : '#f0f9ff',
+                                border: `1px solid ${chartData.speedPhase === 'countdown' ? '#fcd34d' : 
+                                                     chartData.speedPhase === 'active' ? '#86efac' : '#93c5fd'}`,
+                                borderRadius: '8px',
+                                margin: '0 16px 16px 16px',
+                            }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                    <div style={{ fontWeight: 600, fontSize: '1rem', color: chartData.speedPhase === 'countdown' ? '#92400e' : 
+                                                                                         chartData.speedPhase === 'active' ? '#166534' : '#1e40af' }}>
+                                        {chartData.speedPhase === 'countdown' ? '⏱️ Get Ready!' : 
+                                         chartData.speedPhase === 'active' ? '🏃 Test Active!' : '✅ Test Complete'}
+                                    </div>
+                                    <div style={{ 
+                                        padding: '4px 8px',
+                                        borderRadius: '12px',
+                                        fontSize: '0.8rem',
+                                        fontWeight: 600,
+                                        backgroundColor: chartData.speedPhase === 'active' ? '#22c55e' : 
+                                                         chartData.speedPhase === 'countdown' ? '#f59e0b' : '#6b7280',
+                                        color: 'white'
+                                    }}>
+                                        {chartData.speedPhase === 'countdown' ? 'COUNTDOWN' : 
+                                         chartData.speedPhase === 'active' ? 'ACTIVE' : 'DONE'}
+                                    </div>
+                                </div>
+                                
+                                {/* Stats Row */}
+                                <div style={{ 
+                                    display: 'flex', 
+                                    justifyContent: 'space-around', 
+                                    marginBottom: '12px',
+                                    padding: '8px',
+                                    background: 'rgba(255,255,255,0.5)',
+                                    borderRadius: '6px'
+                                }}>
+                                    <div style={{ textAlign: 'center' }}>
+                                        <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#6366f1' }}>
+                                            {chartData.speedTotalReps || 0}
+                                        </div>
+                                        <div style={{ fontSize: '0.7rem', color: '#6b7280' }}>REPS</div>
+                                    </div>
+                                    <div style={{ textAlign: 'center' }}>
+                                        <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#059669' }}>
+                                            {chartData.currentAngle?.toFixed(0) || 0}°
+                                        </div>
+                                        <div style={{ fontSize: '0.7rem', color: '#6b7280' }}>ANGLE</div>
+                                    </div>
+                                    <div style={{ textAlign: 'center' }}>
+                                        <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#dc2626' }}>
+                                            {chartData.speedUserMaxAngle?.toFixed(0) || 'N/A'}°
+                                        </div>
+                                        <div style={{ fontSize: '0.7rem', color: '#6b7280' }}>MAX</div>
+                                    </div>
+                                </div>
+                                
+                                {/* Countdown Timer */}
+                                {(chartData.speedPhase === 'countdown' || chartData.speedPhase === 'active') && (
+                                    <div style={{ marginBottom: '8px', textAlign: 'center' }}>
+                                        {chartData.speedPhase === 'countdown' ? (
+                                            <>
+                                                <div style={{ 
+                                                    fontSize: '3rem', 
+                                                    fontWeight: 'bold', 
+                                                    color: '#dc2626',
+                                                    textShadow: '0 0 10px rgba(220, 38, 38, 0.3)',
+                                                    marginBottom: '4px'
+                                                }}>
+                                                    {Math.ceil(Math.max(0, 5 - (chartData.speedProgress ? chartData.speedProgress * 5 : 0)))}
+                                                </div>
+                                                <div style={{ fontSize: '0.9rem', fontWeight: 500, color: '#92400e' }}>
+                                                    Keep arm DOWN - Get ready!
+                                                </div>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <div style={{ 
+                                                    fontSize: '2.5rem', 
+                                                    fontWeight: 'bold', 
+                                                    color: '#22c55e',
+                                                    marginBottom: '4px'
+                                                }}>
+                                                    {Math.ceil(Math.max(0, 30 - (chartData.speedProgress ? chartData.speedProgress * 30 : 0)))}s
+                                                </div>
+                                                <div style={{ fontSize: '0.9rem', fontWeight: 500, color: '#166534' }}>
+                                                    Keep going! Full range of motion!
+                                                </div>
+                                            </>
+                                        )}
+                                    </div>
+                                )}
+                                
+                                {/* Progress Bar */}
+                                <div style={{ 
+                                    width: '100%', 
+                                    height: '8px', 
+                                    backgroundColor: '#e5e5e5', 
+                                    borderRadius: '4px',
+                                    overflow: 'hidden'
+                                }}>
+                                    <div style={{ 
+                                        width: `${(chartData.speedProgress || 0) * 100}%`, 
+                                        height: '100%', 
+                                        backgroundColor: chartData.speedPhase === 'countdown' ? '#f59e0b' : '#22c55e',
+                                        borderRadius: '4px',
+                                        transition: 'width 0.2s ease-out'
+                                    }} />
+                                </div>
+                            </div>
+                        )}
+
                         {/* Stability Test Status Display */}
                         {activeTab === 'stability' && isRecording && chartData && (
                             <div style={{ 
@@ -668,28 +968,34 @@ export default function AbductionAdduction() {
                                     Target: {chartData.targetAngle?.toFixed(0)}° | Current: {chartData.currentAngle?.toFixed(1)}°
                                 </div>
                                 
-                                {/* Progress Bar */}
+                                {/* Countdown Timer */}
                                 {(chartData.inTargetZone || chartData.zoneStatus === 'countdown') && (
-                                    <div style={{ marginBottom: '8px' }}>
-                                        <div style={{ fontSize: '0.8rem', color: '#374151', marginBottom: '4px' }}>
-                                            {chartData.zoneStatus === 'countdown' ? 
-                                                `Get Ready! ${(Math.max(0, 3 - (chartData.progress ? chartData.progress * 3 : 0))).toFixed(1)}s until hold starts` :
-                                                `Hold Steady! ${(Math.max(0, 5 - (chartData.progress ? chartData.progress * 5 : 0))).toFixed(1)}s remaining`
-                                            }
-                                        </div>
-                                        <div style={{ 
-                                            width: '100%', 
-                                            height: '8px', 
-                                            backgroundColor: '#e5e7eb', 
-                                            borderRadius: '4px',
-                                            overflow: 'hidden'
-                                        }}>
+                                    <div style={{ marginBottom: '8px', textAlign: 'center' }}>
+                                        {chartData.zoneStatus === 'countdown' ? (
                                             <div style={{ 
-                                                width: `${(chartData.progress || 0) * 100}%`, 
-                                                height: '100%', 
-                                                backgroundColor: '#22c55e',
-                                                transition: 'width 0.3s ease'
-                                            }} />
+                                                fontSize: '2rem', 
+                                                fontWeight: 'bold', 
+                                                color: '#dc2626',
+                                                animation: 'blink 1s infinite',
+                                                marginBottom: '4px'
+                                            }}>
+                                                {Math.ceil(Math.max(0, 5 - (chartData.progress ? chartData.progress * 5 : 0)))}
+                                            </div>
+                                        ) : (
+                                            <div style={{ 
+                                                fontSize: '1.5rem', 
+                                                fontWeight: 'bold', 
+                                                color: '#22c55e',
+                                                marginBottom: '4px'
+                                            }}>
+                                                {Math.ceil(Math.max(0, 5 - (chartData.progress ? chartData.progress * 5 : 0)))}
+                                            </div>
+                                        )}
+                                        <div style={{ fontSize: '0.8rem', color: '#374151' }}>
+                                            {chartData.zoneStatus === 'countdown' ? 
+                                                'Get Ready!' : 
+                                                'Hold Steady!'
+                                            }
                                         </div>
                                     </div>
                                 )}
@@ -699,6 +1005,111 @@ export default function AbductionAdduction() {
                                             chartData.zoneStatus === 'countdown' ? '⏰ Get Ready to Hold' :
                                             chartData.zoneStatus === 'holding' ? '💪 Holding Steady' :
                                             chartData.zoneStatus === 'approaching' ? '🎯 Approaching Target' : '📍 Move to Target Angle'}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Speed Test Results */}
+                        {activeTab === 'speed' && chartData && chartData.speedTestComplete && (
+                            <div style={{ 
+                                padding: '16px', 
+                                background: '#fff', 
+                                border: '1px solid #e5e5e5',
+                                borderRadius: '8px',
+                                margin: '0 16px 16px 16px',
+                            }}>
+                                <h4 style={{ margin: '0 0 12px 0', fontSize: '1rem', fontWeight: 600, color: '#111' }}>
+                                    🏆 Speed Test Results
+                                </h4>
+                                
+                                {/* Total Reps */}
+                                <div style={{ 
+                                    padding: '12px 16px', 
+                                    background: '#f9fafb', 
+                                    borderRadius: '6px', 
+                                    marginBottom: '12px',
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center'
+                                }}>
+                                    <div>
+                                        <div style={{ fontWeight: 500, fontSize: '0.9rem', color: '#111' }}>
+                                            Total Reps (30 seconds)
+                                        </div>
+                                        <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#6366f1' }}>
+                                            {chartData.speedTotalReps || 0}
+                                        </div>
+                                        {chartData.speedRepsPerMinute && (
+                                            <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>
+                                                ≈ {chartData.speedRepsPerMinute} reps/min
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div style={{ 
+                                        padding: '6px 12px', 
+                                        borderRadius: '6px', 
+                                        fontSize: '0.85rem', 
+                                        fontWeight: 600,
+                                        backgroundColor: (chartData.speedTotalReps || 0) >= 20 ? '#dcfce7' : 
+                                                         (chartData.speedTotalReps || 0) >= 15 ? '#fef3c7' : '#fee2e2',
+                                        color: (chartData.speedTotalReps || 0) >= 20 ? '#166534' : 
+                                              (chartData.speedTotalReps || 0) >= 15 ? '#92400e' : '#991b1b'
+                                    }}>
+                                        {(chartData.speedTotalReps || 0) >= 20 ? '✓ Excellent' : 
+                                         (chartData.speedTotalReps || 0) >= 15 ? '◐ Good' : '✗ Needs Work'}
+                                    </div>
+                                </div>
+                                
+                                {/* Consistency Score */}
+                                {chartData.speedConsistency !== null && chartData.speedConsistency !== undefined && (
+                                    <div style={{ 
+                                        padding: '12px 16px', 
+                                        background: '#f9fafb', 
+                                        borderRadius: '6px', 
+                                        marginBottom: '12px',
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center'
+                                    }}>
+                                        <div>
+                                            <div style={{ fontWeight: 500, fontSize: '0.9rem', color: '#111' }}>
+                                                Consistency Score
+                                            </div>
+                                            <div style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '2px' }}>
+                                                Std deviation of rep intervals (lower = more consistent)
+                                            </div>
+                                            <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#6366f1', marginTop: '4px' }}>
+                                                {chartData.speedConsistency.toFixed(2)}s
+                                            </div>
+                                        </div>
+                                        <div style={{ 
+                                            padding: '6px 12px', 
+                                            borderRadius: '6px', 
+                                            fontSize: '0.85rem', 
+                                            fontWeight: 600,
+                                            backgroundColor: chartData.speedConsistency < 0.5 ? '#dcfce7' : 
+                                                             chartData.speedConsistency <= 1.0 ? '#fef3c7' : '#fee2e2',
+                                            color: chartData.speedConsistency < 0.5 ? '#166534' : 
+                                                  chartData.speedConsistency <= 1.0 ? '#92400e' : '#991b1b'
+                                        }}>
+                                            {chartData.speedConsistency < 0.5 ? '✓ Very Consistent' : 
+                                             chartData.speedConsistency <= 1.0 ? '◐ Consistent' : '✗ Inconsistent'}
+                                        </div>
+                                    </div>
+                                )}
+                                
+                                <div style={{ 
+                                    padding: '8px 12px', 
+                                    background: '#f0f9ff', 
+                                    borderRadius: '6px', 
+                                    fontSize: '0.8rem', 
+                                    color: '#374151' 
+                                }}>
+                                    <strong>Performance Analysis:</strong> {
+                                        ((chartData.speedTotalReps || 0) >= 20 && (chartData.speedConsistency || 0) < 0.5) ? 'Excellent speed and consistency!' :
+                                        ((chartData.speedTotalReps || 0) >= 15 && (chartData.speedConsistency || 0) <= 1.0) ? 'Good performance with room for improvement.' :
+                                        'Focus on building endurance and movement consistency.'
+                                    }
                                 </div>
                             </div>
                         )}
@@ -713,7 +1124,7 @@ export default function AbductionAdduction() {
                                 margin: '0 16px 16px 16px',
                             }}>
                                 <h4 style={{ margin: '0 0 12px 0', fontSize: '1rem', fontWeight: 600, color: '#111' }}>
-                                    🎯 Stability Test Results
+                                      Stability Test Results
                                 </h4>
                                 {Object.entries(chartData.results).map(([phase, result]) => (
                                     <div key={phase} style={{ 
@@ -743,8 +1154,8 @@ export default function AbductionAdduction() {
                                             color: result.std_deviation < 1 ? '#166534' : 
                                                   result.std_deviation <= 3 ? '#92400e' : '#991b1b'
                                         }}>
-                                            {result.std_deviation < 1 ? 'Very Stable' : 
-                                             result.std_deviation <= 3 ? 'Stable' : 'Unstable'}
+                                            {result.std_deviation < 2 ? 'Very Stable' : 
+                                             result.std_deviation <= 4 ? 'Stable' : 'Unstable'}
                                         </div>
                                     </div>
                                 ))}

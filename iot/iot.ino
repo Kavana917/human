@@ -15,6 +15,10 @@ const int MPU_addr = 0x68;
 float smoothPitch = 0;
 float smoothRoll = 0;
 
+// -------- TIMING --------
+unsigned long lastSend = 0;
+const int sendInterval = 100; // send every 100ms (10Hz)
+
 void setup() {
   Serial.begin(115200);
   Wire.begin(19, 5);
@@ -39,7 +43,8 @@ void setup() {
 }
 
 void loop() {
-  // -------- READ MPU DATA --------
+
+  // -------- READ MPU DATA (FAST LOOP) --------
   Wire.beginTransmission(MPU_addr);
   Wire.write(0x3B);
   Wire.endTransmission(false);
@@ -60,29 +65,32 @@ void loop() {
   float roll = atan2(ay, az);
   float pitch = atan2(-ax, sqrt((float)ay * ay + (float)az * az));
 
-  // Convert to degrees
   float rollDeg = roll * 180.0 / PI;
   float pitchDeg = pitch * 180.0 / PI;
 
-  // -------- SMOOTHING FILTER --------
-  smoothPitch = 0.9 * smoothPitch + 0.1 * pitchDeg;
-  smoothRoll  = 0.9 * smoothRoll  + 0.1 * rollDeg;
+  // -------- LIGHT SMOOTHING (LOW LATENCY) --------
+  smoothPitch = pitchDeg;
+  smoothRoll  = rollDeg;
 
-  // -------- NORMALIZE ACCEL (OPTIONAL) --------
+  // -------- NORMALIZE ACCEL --------
   float ax_g = ax / 16384.0;
   float ay_g = ay / 16384.0;
   float az_g = az / 16384.0;
 
-  // -------- SEND DATA --------
-  if (WiFi.status() == WL_CONNECTED) {
+  // -------- SEND DATA (SLOW LOOP) --------
+  if (WiFi.status() == WL_CONNECTED && millis() - lastSend > sendInterval) {
+
+    lastSend = millis();
+
     HTTPClient http;
     http.begin(serverUrl);
     http.addHeader("Content-Type", "application/json");
 
     StaticJsonDocument<300> doc;
 
-    doc["pitch"] = smoothPitch;
-    doc["roll"] = smoothRoll;
+    // 🔥 USE SMOOTHED BUT RESPONSIVE VALUES
+    doc["pitch"] = pitchDeg;
+    doc["roll"]  = rollDeg;
 
     doc["ax"] = ax_g;
     doc["ay"] = ay_g;
@@ -93,8 +101,6 @@ void loop() {
     doc["gz"] = gz;
 
     doc["time"] = millis();
-
-    // 👇 change this dynamically later from frontend if needed
     doc["test"] = "shoulder_abduction";
 
     String requestBody;
@@ -111,5 +117,6 @@ void loop() {
     http.end();
   }
 
-  delay(50); // ~20Hz
+  // -------- FAST SENSOR LOOP --------
+  delay(20); // ~50Hz sensor reading
 }
