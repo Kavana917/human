@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 import { ArrowLeft, User, Activity, Edit2, Check, X, Loader2 } from 'lucide-react';
+import TestRecordCard from '../components/TestRecordCard';
 
 export default function Dashboard() {
     const navigate = useNavigate();
@@ -12,26 +13,36 @@ export default function Dashboard() {
     // Edit state
     const [isEditing, setIsEditing] = useState(false);
     const [editForm, setEditForm] = useState<any>({});
+    
+    // Test results
+    const [testResults, setTestResults] = useState<any[]>([]);
 
     useEffect(() => {
         let isMounted = true;
         
-        supabase.auth.getUser().then(({ data: { user } }) => {
+        supabase.auth.getUser().then(async ({ data: { user } }) => {
             if (user) {
-                supabase.from('profiles').select('*').eq('id', user.id).single()
-                    .then(({ data }) => {
-                        if (isMounted) {
-                            setProfile({ email: user.email, ...data });
-                            setEditForm({
-                                height_cm: data.height_cm || '',
-                                weight_kg: data.weight_kg || '',
-                                activity_level: data.activity_level || 'sedentary',
-                                has_injury: data.has_injury || false,
-                                injury_notes: data.injury_notes || ''
-                            });
-                            setLoading(false);
-                        }
-                    });
+                try {
+                    const profileRes = await supabase.from('profiles').select('*').eq('id', user.id).single();
+                    const resultsRes = await supabase.from('test_results').select('*').eq('user_id', user.id).order('created_at', { ascending: false });
+                    
+                    if (isMounted) {
+                        setProfile({ email: user.email, ...profileRes.data });
+                        setTestResults(resultsRes.data || []);
+                        setEditForm({
+                            age: profileRes.data.age || '',
+                            height_cm: profileRes.data.height_cm || '',
+                            weight_kg: profileRes.data.weight_kg || '',
+                            activity_level: profileRes.data.activity_level || 'sedentary',
+                            has_injury: profileRes.data.has_injury || false,
+                            injury_notes: profileRes.data.injury_notes || ''
+                        });
+                        setLoading(false);
+                    }
+                } catch (e) {
+                    console.error("Dashboard fetch error", e);
+                    if (isMounted) setLoading(false);
+                }
             } else {
                 if (isMounted) navigate('/login');
             }
@@ -44,6 +55,7 @@ export default function Dashboard() {
         if (!isEditing) {
             // reset form to current profile
             setEditForm({
+                age: profile.age || '',
                 height_cm: profile.height_cm || '',
                 weight_kg: profile.weight_kg || '',
                 activity_level: profile.activity_level || 'sedentary',
@@ -60,6 +72,7 @@ export default function Dashboard() {
             const { data: { user } } = await supabase.auth.getUser();
             if (user) {
                 const updates = {
+                    age: parseInt(editForm.age, 10),
                     height_cm: parseFloat(editForm.height_cm),
                     weight_kg: parseFloat(editForm.weight_kg),
                     activity_level: editForm.activity_level,
@@ -126,13 +139,22 @@ export default function Dashboard() {
                                 <span className="label">Username</span>
                                 <span className="value">{profile?.username || 'N/A'}</span>
                             </div>
-                            <div className="profile-item">
+                            <div className="profile-item" style={{ gridColumn: 'span 2', wordBreak: 'break-all' }}>
                                 <span className="label">Email</span>
                                 <span className="value">{profile?.email || 'N/A'}</span>
                             </div>
                             <div className="profile-item">
                                 <span className="label">Age</span>
-                                <span className="value">{profile?.age || 'N/A'}</span>
+                                {isEditing ? (
+                                    <input 
+                                        type="number" 
+                                        style={{ marginTop: '8px', padding: '12px', border: '1px solid #111', fontFamily: 'inherit', outline: 'none' }}
+                                        value={editForm.age} 
+                                        onChange={e => setEditForm({...editForm, age: e.target.value})} 
+                                    />
+                                ) : (
+                                    <span className="value">{profile?.age || 'N/A'}</span>
+                                )}
                             </div>
 
                             {/* Editable Fields Below */}
@@ -223,9 +245,15 @@ export default function Dashboard() {
                         </div>
                         
                         <div className="results-list">
-                            <div style={{ padding: '48px 32px', textAlign: 'center', background: '#fafafa', border: '1px dashed #e5e5e5', color: '#666', fontFamily: 'inherit' }}>
-                                No previous test records available.
-                            </div>
+                            {testResults.length === 0 ? (
+                                <div style={{ padding: '48px 32px', textAlign: 'center', background: '#fafafa', border: '1px dashed #e5e5e5', color: '#666', fontFamily: 'inherit' }}>
+                                    No previous test records available.
+                                </div>
+                            ) : (
+                                testResults.map(record => (
+                                    <TestRecordCard key={record.id} record={record} />
+                                ))
+                            )}
                         </div>
                     </section>
                 </div>

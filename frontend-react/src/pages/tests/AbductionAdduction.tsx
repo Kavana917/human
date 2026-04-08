@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Play, Square, Send } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Play, Square, Send, Loader2 } from 'lucide-react';
+import { supabase } from '../../supabaseClient';
 import * as THREE from 'three';
 import abductionVideo from '../../assets/abduction.mp4';
 import TestPageLayout from './TestPageLayout';
@@ -205,14 +207,67 @@ interface ChartData {
     speedTestComplete?: boolean;
     speedUserMaxAngle?: number;
     speedRepsPerMinute?: number;
-    currentAngle?: number;
 }
 
 export default function AbductionAdduction() {
+    const navigate = useNavigate();
     const [activeTab, setActiveTab] = useState('rom');
     const [isRecording, setIsRecording] = useState(false);
     const [chartData, setChartData] = useState<ChartData | null>(null);
     const [romCompleted, setRomCompleted] = useState(false);
+    const [stabilityCompleted, setStabilityCompleted] = useState(false);
+    const [speedCompleted, setSpeedCompleted] = useState(false);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
+    const handleSubmit = async () => {
+        setIsSubmitting(true);
+        try {
+            // Get current user
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) {
+                alert("You must be logged in to save test results.");
+                setIsSubmitting(false);
+                return;
+            }
+
+            // Fetch final data for all 3 tests from the backend
+            const [romRes, stabilityRes, speedRes] = await Promise.all([
+                fetch(`http://localhost:5001/data/rom?t=${Date.now()}`),
+                fetch(`http://localhost:5001/data/stability?t=${Date.now()}`),
+                fetch(`http://localhost:5001/data/speed?t=${Date.now()}`)
+            ]);
+
+            if (!romRes.ok || !stabilityRes.ok || !speedRes.ok) {
+                throw new Error("Failed to fetch all test data from backend");
+            }
+
+            const romData = await romRes.json();
+            const stabilityData = await stabilityRes.json();
+            const speedData = await speedRes.json();
+
+            // Store in Supabase
+            const { error } = await supabase.from('test_results').insert([
+                {
+                    user_id: user.id,
+                    test_type: 'Arm - Abduction & Adduction',
+                    rom_data: romData,
+                    stability_data: stabilityData,
+                    speed_data: speedData
+                }
+            ]);
+
+            if (error) throw error;
+            
+            // Navigate to Dashboard
+            navigate('/dashboard');
+
+        } catch (e) {
+            console.error("Failed to submit results", e);
+            alert("There was an error saving your results: " + (e as Error).message);
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
 
     const toggleRecording = async () => {
         // Prevent stability test without ROM data
@@ -241,9 +296,13 @@ export default function AbductionAdduction() {
                 const data = await res.json();
                 setChartData(data);
                 
-                // Track ROM completion
+                // Track test completion
                 if (activeTab === 'rom' && data.status === 'ok' && data.maxRoll) {
                     setRomCompleted(true);
+                } else if (activeTab === 'stability' && data.testComplete) {
+                    setStabilityCompleted(true);
+                } else if (activeTab === 'speed' && data.speedTestComplete) {
+                    setSpeedCompleted(true);
                 }
             }
         } catch (e) {
@@ -704,7 +763,7 @@ export default function AbductionAdduction() {
                             </div>
                             <div style={{ marginTop: '12px', padding: '12px 16px', background: '#f8f8f8', borderRadius: '6px', fontSize: '0.9rem', color: '#111', border: '1px solid #e5e5e5' }}>
                                 <strong>📊 Scoring:</strong><br/>
-                                • ≥20 reps = Excellent | 15-19 reps = Good | {'<'}15 reps = Needs Work<br/>
+                                • ≥18 reps = Excellent | 10-17 reps = Good | {'<'}10 reps = Needs Attention<br/>
                                 • Consistency {'<'}0.5s = Very Consistent | 0.5-1.0s = Consistent | {'>'}1.0s = Inconsistent
                             </div>
                         </div>
@@ -1018,13 +1077,13 @@ export default function AbductionAdduction() {
                                         borderRadius: '6px', 
                                         fontSize: '0.85rem', 
                                         fontWeight: 600,
-                                        backgroundColor: (chartData.speedTotalReps || 0) >= 20 ? '#dcfce7' : 
-                                                         (chartData.speedTotalReps || 0) >= 15 ? '#fef3c7' : '#fee2e2',
-                                        color: (chartData.speedTotalReps || 0) >= 20 ? '#166534' : 
-                                              (chartData.speedTotalReps || 0) >= 15 ? '#92400e' : '#991b1b'
+                                        backgroundColor: (chartData.speedTotalReps || 0) >= 18 ? '#dcfce7' : 
+                                                         (chartData.speedTotalReps || 0) >= 10 ? '#fef3c7' : '#fee2e2',
+                                        color: (chartData.speedTotalReps || 0) >= 18 ? '#166534' : 
+                                              (chartData.speedTotalReps || 0) >= 10 ? '#92400e' : '#991b1b'
                                     }}>
-                                        {(chartData.speedTotalReps || 0) >= 20 ? '✓ Excellent' : 
-                                         (chartData.speedTotalReps || 0) >= 15 ? '◐ Good' : '✗ Needs Work'}
+                                        {(chartData.speedTotalReps || 0) >= 18 ? '✓ Excellent' : 
+                                         (chartData.speedTotalReps || 0) >= 10 ? '◐ Good' : '✗ Needs Attention'}
                                     </div>
                                 </div>
                                 
@@ -1074,8 +1133,8 @@ export default function AbductionAdduction() {
                                     color: '#374151' 
                                 }}>
                                     <strong>Performance Analysis:</strong> {
-                                        ((chartData.speedTotalReps || 0) >= 20 && (chartData.speedConsistency || 0) < 0.5) ? 'Excellent speed and consistency!' :
-                                        ((chartData.speedTotalReps || 0) >= 15 && (chartData.speedConsistency || 0) <= 1.0) ? 'Good performance with room for improvement.' :
+                                        ((chartData.speedTotalReps || 0) >= 18 && (chartData.speedConsistency || 0) < 0.5) ? 'Excellent speed and consistency!' :
+                                        ((chartData.speedTotalReps || 0) >= 10 && (chartData.speedConsistency || 0) <= 1.0) ? 'Good performance with room for improvement.' :
                                         'Focus on building endurance and movement consistency.'
                                     }
                                 </div>
@@ -1136,9 +1195,28 @@ export default function AbductionAdduction() {
                     </div>
 
                     <div className="submit-section" style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>
-                        <button className="btn-primary" style={{ display: 'inline-flex', width: 'auto', padding: '14px 32px', gap: '8px' }}>
-                            <span>Submit Results</span>
-                            <Send size={16} />
+                        <button 
+                            className="btn-primary" 
+                            style={{ 
+                                display: 'inline-flex', 
+                                width: 'auto', 
+                                padding: '14px 32px', 
+                                gap: '8px',
+                                backgroundColor: (romCompleted && stabilityCompleted && speedCompleted) ? '#111' : '#f9fafb',
+                                color: (romCompleted && stabilityCompleted && speedCompleted) ? '#fff' : '#9ca3af',
+                                border: (romCompleted && stabilityCompleted && speedCompleted) ? '1px solid #111' : '1px dashed #d1d5db',
+                                cursor: (romCompleted && stabilityCompleted && speedCompleted) && !isSubmitting ? 'pointer' : 'not-allowed',
+                                transition: 'all 0.2s ease-in-out'
+                            }}
+                            onClick={handleSubmit}
+                            disabled={!(romCompleted && stabilityCompleted && speedCompleted) || isSubmitting}
+                        >
+                            {isSubmitting ? <Loader2 size={16} className="btn-loader" style={{ animation: 'spin 1s linear infinite' }} /> : (
+                                <>
+                                    <span>Submit Results</span>
+                                    <Send size={16} />
+                                </>
+                            )}
                         </button>
                     </div>
         </TestPageLayout>

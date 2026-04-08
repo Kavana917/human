@@ -1,0 +1,199 @@
+import { useState } from 'react';
+import { Calendar, ChevronDown, ChevronUp, Activity } from 'lucide-react';
+import { Line, Bar } from 'react-chartjs-2';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler,
+} from 'chart.js';
+import annotationPlugin from 'chartjs-plugin-annotation';
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler,
+  annotationPlugin
+);
+
+export default function TestRecordCard({ record }: { record: any }) {
+    const [expanded, setExpanded] = useState(false);
+    const date = new Date(record.created_at).toLocaleString(undefined, {
+        dateStyle: 'medium',
+        timeStyle: 'short'
+    });
+
+    const romData = record.rom_data;
+    const stabilityData = record.stability_data;
+    const speedData = record.speed_data;
+
+    // Formatting chart configurations for historical view
+    const renderRomChart = () => {
+        if (!romData || !romData.times) return null;
+        const data = {
+            labels: romData.times.map((t: number) => t.toFixed(1)),
+            datasets: [
+                {
+                    label: 'Relative Arm Angle (degrees)',
+                    data: romData.rolls || [],
+                    borderColor: 'dodgerblue',
+                    backgroundColor: 'rgba(30, 144, 255, 0.1)',
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 0
+                }
+            ]
+        };
+
+        const options = {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                title: { display: true, text: 'ROM: Angle Trajectory' },
+                legend: { display: false }
+            },
+            scales: {
+                y: { min: 0, max: 200 },
+                x: { ticks: { maxTicksLimit: 10 } }
+            }
+        };
+
+        return <div style={{ height: '200px', marginTop: '16px' }}><Line data={data} options={options} /></div>;
+    };
+
+    const renderSpeedChart = () => {
+        if (!speedData || !speedData.bins) return null;
+        const data = {
+            labels: speedData.bins,
+            datasets: [
+                {
+                    label: 'Reps per 5s',
+                    data: speedData.reps || [],
+                    backgroundColor: 'rgba(34, 197, 94, 0.8)',
+                }
+            ]
+        };
+
+        const options = {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                title: { display: true, text: 'Speed Test Reps' },
+                legend: { display: false }
+            },
+            scales: {
+                y: { beginAtZero: true, ticks: { stepSize: 1 } }
+            }
+        };
+
+        return <div style={{ height: '200px', marginTop: '16px' }}><Bar data={data} options={options} /></div>;
+    };
+
+    return (
+        <div style={{
+            background: '#fff',
+            border: '1px solid #e5e5e5',
+            borderRadius: '8px',
+            padding: '24px',
+            marginBottom: '16px',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
+        }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                    <h3 style={{ margin: '0 0 8px 0', fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Activity size={20} color="#111" />
+                        {record.test_type === 'AbductionAdduction' ? 'Arm - Abduction & Adduction' : record.test_type}
+                    </h3>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#6b7280', fontSize: '0.9rem' }}>
+                        <Calendar size={14} />
+                        {date}
+                    </div>
+                </div>
+                <div style={{ display: 'flex', gap: '16px', textAlign: 'center', flexWrap: 'wrap' }}>
+                    <div style={{ background: '#f9fafb', padding: '8px 16px', borderRadius: '6px', border: '1px solid #e5e5e5' }}>
+                        <div style={{ fontSize: '0.8rem', color: '#666' }}>Max ROM</div>
+                        <div style={{ fontWeight: 'bold', fontSize: '1.1rem' }}>{romData?.maxRoll?.toFixed(0) || '-'}°</div>
+                        {romData?.assessment && (
+                            <div style={{ fontSize: '0.75rem', marginTop: '4px', color: romData.assessmentColor === 'green' ? '#166534' : romData.assessmentColor === 'orange' ? '#92400e' : '#991b1b', fontWeight: 600 }}>
+                                {romData.assessment}
+                            </div>
+                        )}
+                    </div>
+                    <div style={{ background: '#f9fafb', padding: '8px 16px', borderRadius: '6px', border: '1px solid #e5e5e5' }}>
+                        <div style={{ fontSize: '0.8rem', color: '#666' }}>Speed Reps</div>
+                        <div style={{ fontWeight: 'bold', fontSize: '1.1rem' }}>{speedData?.speedTotalReps || 0}</div>
+                        {speedData?.speedConsistency !== undefined && speedData.speedConsistency !== null && (
+                            <div style={{ fontSize: '0.75rem', marginTop: '4px', color: speedData.speedConsistency < 0.5 ? '#166534' : speedData.speedConsistency <= 1.0 ? '#92400e' : '#991b1b', fontWeight: 600 }}>
+                                {speedData.speedConsistency < 0.5 ? 'Very Consistent' : speedData.speedConsistency <= 1.0 ? 'Consistent' : 'Inconsistent'}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            <button 
+                onClick={() => setExpanded(!expanded)}
+                style={{
+                    background: 'none', border: 'none', color: '#3b82f6', 
+                    display: 'flex', alignItems: 'center', gap: '4px',
+                    fontSize: '0.9rem', cursor: 'pointer', marginTop: '16px',
+                    padding: 0, fontWeight: 500
+                }}
+            >
+                {expanded ? (
+                    <><ChevronUp size={16} /> Hide Detailed Graphs</>
+                ) : (
+                    <><ChevronDown size={16} /> View Detailed Graphs</>
+                )}
+            </button>
+
+            {expanded && (
+                <div style={{ marginTop: '24px', borderTop: '1px solid #e5e5e5', paddingTop: '16px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+                        <div style={{ background: '#fafafa', padding: '16px', borderRadius: '8px', border: '1px solid #e5e5e5' }}>
+                            <h4 style={{ margin: '0 0 8px 0', fontSize: '1rem' }}>ROM Data</h4>
+                            {renderRomChart()}
+                        </div>
+                        <div style={{ background: '#fafafa', padding: '16px', borderRadius: '8px', border: '1px solid #e5e5e5' }}>
+                            <h4 style={{ margin: '0 0 8px 0', fontSize: '1rem' }}>Speed Data</h4>
+                            {renderSpeedChart()}
+                        </div>
+                        <div style={{ background: '#fafafa', padding: '16px', borderRadius: '8px', border: '1px solid #e5e5e5', gridColumn: 'span 2' }}>
+                            <h4 style={{ margin: '0 0 16px 0', fontSize: '1rem' }}>Stability Summary</h4>
+                            <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                                {stabilityData?.results && Object.entries(stabilityData.results).map(([phase, result]: [string, any]) => {
+                                    const dev = result.std_deviation || 0;
+                                    const stabilityLabel = dev < 2 ? 'Very Stable' : dev <= 4 ? 'Stable' : 'Unstable';
+                                    const color = dev < 2 ? '#166534' : dev <= 4 ? '#92400e' : '#991b1b';
+                                    const bg = dev < 2 ? '#dcfce7' : dev <= 4 ? '#fef3c7' : '#fee2e2';
+
+                                    return (
+                                        <div key={phase} style={{ flex: 1, background: '#fff', padding: '12px', borderRadius: '6px', border: '1px solid #e5e5e5', textAlign: 'center', minWidth: '120px' }}>
+                                            <div style={{ fontSize: '0.9rem', fontWeight: 'bold' }}>{result.target_angle}° Position</div>
+                                            <div style={{ fontSize: '0.8rem', color: '#666', marginTop: '4px', marginBottom: '8px' }}>SD: {dev.toFixed(2)}°</div>
+                                            <div style={{ display: 'inline-block', padding: '4px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600, backgroundColor: bg, color: color }}>
+                                                {stabilityLabel}
+                                            </div>
+                                        </div>
+                                    )
+                                })}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
