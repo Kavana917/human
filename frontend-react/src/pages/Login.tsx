@@ -17,7 +17,7 @@ const Logo = () => (
                 <line x1="30" y1="20" x2="38" y2="20" stroke="currentColor" strokeWidth="1.5" opacity="0.4"/>
             </svg>
         </div>
-        <h1 className="brand-name">MotionSync</h1>
+        <h1 className="brand-name">Stryde</h1>
         <p className="brand-tagline">Real-time motion intelligence</p>
     </div>
 );

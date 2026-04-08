@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Play, Square, Send } from 'lucide-react';
+import { Play, Square, Send } from 'lucide-react';
 import * as THREE from 'three';
 import abductionVideo from '../../assets/abduction.mp4';
+import TestPageLayout from './TestPageLayout';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -209,16 +209,10 @@ interface ChartData {
 }
 
 export default function AbductionAdduction() {
-
-    const navigate = useNavigate();
     const [activeTab, setActiveTab] = useState('rom');
     const [isRecording, setIsRecording] = useState(false);
     const [chartData, setChartData] = useState<ChartData | null>(null);
     const [romCompleted, setRomCompleted] = useState(false);
-
-    const handleBack = () => {
-        navigate('/tests');
-    };
 
     const toggleRecording = async () => {
         // Prevent stability test without ROM data
@@ -641,33 +635,7 @@ export default function AbductionAdduction() {
     };
 
     return (
-        <div className="page-container" style={{ maxWidth: '1400px', margin: '0 auto', padding: '48px 24px' }}>
-            <header className="page-header" style={{ marginBottom: '32px' }}>
-                <button onClick={handleBack} className="btn-icon">
-                    <ArrowLeft size={20} />
-                    <span>Back to Tests</span>
-                </button>
-                <div style={{ marginTop: '16px' }}>
-                    <h1 className="page-title" style={{ margin: 0 }}>Abduction & Adduction</h1>
-                </div>
-            </header>
-
-            <div className="test-layout-grid">
-                {/* Left side: Demo Video */}
-                <div className="video-section">
-                    <h2 style={{ fontSize: '1.2rem', marginBottom: '16px', fontWeight: 500, borderBottom: '1px solid #e5e5e5', paddingBottom: '12px' }}>Demo Video</h2>
-                    <video 
-                        src={abductionVideo} 
-                        controls 
-                        autoPlay 
-                        loop 
-                        muted 
-                        style={{ width: '100%', borderRadius: '8px' }}
-                    />
-                </div>
-
-                {/* Right side: Test Area */}
-                <div className="test-area-section">
+        <TestPageLayout title="Abduction & Adduction" videoSrc={abductionVideo}>
                     {/* Instructions */}
                     {activeTab === 'rom' && !isRecording && (
                         <div style={{ 
@@ -723,16 +691,16 @@ export default function AbductionAdduction() {
                             <ol style={{ margin: 0, paddingLeft: '20px', fontSize: '0.95rem', color: '#333', lineHeight: '1.6' }}>
                                 <li style={{ marginBottom: '8px' }}>Click "Start Recording" to begin the speed test</li>
                                 <li style={{ marginBottom: '8px' }}>During the <strong>5-second countdown</strong>, keep your arm down and get ready</li>
-                                <li style={{ marginBottom: '8px' }}>When the test starts, perform <strong>as many full reps as possible in 30 seconds</strong></li>
-                                <li style={{ marginBottom: '8px' }}>Each rep: Arm down → Raise to peak → Return to down position</li>
+                                <li style={{ marginBottom: '8px' }}>When the test starts, perform <strong>as many up-movements as possible in 30 seconds</strong></li>
+                                <li style={{ marginBottom: '8px' }}>Each rep: Start near base (0°), then raise to your peak target</li>
                                 <li>Test completes automatically and shows your results</li>
                             </ol>
                             <div style={{ marginTop: '16px', padding: '12px 16px', background: '#f0fdf4', borderRadius: '6px', fontSize: '0.9rem', color: '#166534', border: '1px solid #86efac' }}>
                                 <strong>🎯 Rep Detection:</strong><br/>
-                                • <span style={{color: '#f59e0b'}}>Start rep:</span> Go above 35°<br/>
-                                • <span style={{color: '#22c55e'}}>Peak:</span> Reach ≥{(chartData?.speedUserMaxAngle || 150) - 25}° (max: {chartData?.speedUserMaxAngle?.toFixed(0) || 'N/A'}°)<br/>
-                                • <span style={{color: '#ef4444'}}>Complete rep:</span> Return below 20°<br/>
-                                • <strong>One rep = Down → Up (hit peak) → Back down</strong>
+                                • <span style={{color: '#f59e0b'}}>Start rep:</span> Leave base and go above 15°<br/>
+                                • <span style={{color: '#22c55e'}}>Peak:</span> Reach ≥{Math.max(90, (chartData?.speedUserMaxAngle || 150) - 10).toFixed(0)}° (max: {chartData?.speedUserMaxAngle?.toFixed(0) || 'N/A'}°)<br/>
+                                • <span style={{color: '#ef4444'}}>Count:</span> Rep is counted when peak is crossed upward<br/>
+                                • <strong>One rep = Base → Peak (no down-return required)</strong>
                             </div>
                             <div style={{ marginTop: '12px', padding: '12px 16px', background: '#f8f8f8', borderRadius: '6px', fontSize: '0.9rem', color: '#111', border: '1px solid #e5e5e5' }}>
                                 <strong>📊 Scoring:</strong><br/>
@@ -1173,8 +1141,6 @@ export default function AbductionAdduction() {
                             <Send size={16} />
                         </button>
                     </div>
-                </div>
-            </div>
-        </div>
+        </TestPageLayout>
     );
 }

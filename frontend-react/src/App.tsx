@@ -8,8 +8,8 @@ import Onboarding from './pages/Onboarding';
 import Home from './pages/Home';
 import Dashboard from './pages/Dashboard';
 import TestSelection from './pages/TestSelection';
-import IotTest from './pages/IotTest';
 import AbductionAdduction from './pages/tests/AbductionAdduction';
+import StandardTestPage from './pages/tests/StandardTestPage';
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -41,7 +41,7 @@ export default function App() {
         <Route path="/dashboard" element={session ? <Dashboard /> : <Navigate to="/login" replace />} />
         <Route path="/tests" element={session ? <TestSelection /> : <Navigate to="/login" replace />} />
         <Route path="/test/abduction-adduction" element={session ? <AbductionAdduction /> : <Navigate to="/login" replace />} />
-        <Route path="/test/:testId" element={session ? <IotTest /> : <Navigate to="/login" replace />} />
+        <Route path="/test/:testId" element={session ? <StandardTestPage /> : <Navigate to="/login" replace />} />
         <Route path="/login" element={!session ? <Login /> : <Navigate to="/" replace />} />
         <Route path="/signup" element={!session ? <Signup /> : <Navigate to="/" replace />} />
         <Route path="/onboarding" element={session ? <Onboarding /> : <Navigate to="/login" replace />} />
