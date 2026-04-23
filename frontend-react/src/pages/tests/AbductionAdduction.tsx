@@ -232,9 +232,9 @@ export default function AbductionAdduction() {
 
             // Fetch final data for all 3 tests from the backend
             const [romRes, stabilityRes, speedRes] = await Promise.all([
-                fetch(`http://localhost:5001/data/rom?t=${Date.now()}`),
-                fetch(`http://localhost:5001/data/stability?t=${Date.now()}`),
-                fetch(`http://localhost:5001/data/speed?t=${Date.now()}`)
+                fetch(`http://localhost:7777/data/rom?t=${Date.now()}`),
+                fetch(`http://localhost:7777/data/stability?t=${Date.now()}`),
+                fetch(`http://localhost:7777/data/speed?t=${Date.now()}`)
             ]);
 
             if (!romRes.ok || !stabilityRes.ok || !speedRes.ok) {
@@ -283,7 +283,7 @@ export default function AbductionAdduction() {
         const newState = !isRecording;
         setIsRecording(newState);
         try {
-            await fetch(`http://localhost:5001/toggle_recording/${activeTab}/${newState ? 'start' : 'stop'}`);
+            await fetch(`http://localhost:7777/toggle_recording/${activeTab}/${newState ? 'start' : 'stop'}`);
         } catch (e) {
             console.error("Failed to toggle backend recording", e);
         }
@@ -291,7 +291,7 @@ export default function AbductionAdduction() {
 
     const fetchChartData = useCallback(async () => {
         try {
-            const res = await fetch(`http://localhost:5001/data/${activeTab}?t=${Date.now()}`);
+            const res = await fetch(`http://localhost:7777/data/${activeTab}?t=${Date.now()}`);
             if (res.ok) {
                 const data = await res.json();
                 setChartData(data);
@@ -322,7 +322,7 @@ export default function AbductionAdduction() {
         const controller = new AbortController();
         const fetchInitialData = async () => {
             try {
-                const res = await fetch(`http://localhost:5001/data/${activeTab}?t=${Date.now()}`, {
+                const res = await fetch(`http://localhost:7777/data/${activeTab}?t=${Date.now()}`, {
                     signal: controller.signal
                 });
                 if (res.ok) {
