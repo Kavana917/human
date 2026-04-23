@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 import { LogOut, ArrowRight } from 'lucide-react';
+import HeroModel from '../components/HeroModel';
 
 export default function Home() {
     const navigate = useNavigate();
@@ -40,16 +41,25 @@ export default function Home() {
 
             {/* HERO / ACTION SECTION */}
             <section className="landing-hero">
-                <h1 className="hero-title">Welcome,<br/>{name}.</h1>
-                <p className="hero-subtitle">What would you like to do today?</p>
-                
-                <div className="hero-actions">
-                    <button className="btn-landing-primary" onClick={() => navigate('/dashboard')}>
-                        View Dashboard
-                    </button>
-                    <button className="btn-landing-secondary" onClick={() => navigate('/tests')}>
-                        Start Assessment
-                    </button>
+                <div className="hero-content">
+                    <div className="hero-text">
+                        <h1 className="hero-title">Welcome,<br />{name}.</h1>
+                        <p className="hero-subtitle">What would you like to do today?</p>
+
+                        <div className="hero-actions">
+                            <button className="btn-landing-primary" onClick={() => navigate('/dashboard')}>
+                                View Dashboard
+                            </button>
+                            <button className="btn-landing-secondary" onClick={() => navigate('/tests')}>
+                                Start Assessment
+                            </button>
+                        </div>
+                    </div>
+                    <div className="hero-model-wrapper">
+                        <Suspense fallback={<div className="model-loading">Loading 3D Model...</div>}>
+                            <HeroModel />
+                        </Suspense>
+                    </div>
                 </div>
             </section>
 
@@ -59,7 +69,7 @@ export default function Home() {
                     <h2 className="section-title-huge">How it works</h2>
                     <span className="section-number">01</span>
                 </div>
-                
+
                 <div className="steps-grid">
                     <div className="step-card">
                         <div className="step-num">1</div>
@@ -95,7 +105,7 @@ export default function Home() {
                     </div>
                     <span className="section-number">02</span>
                 </div>
-                
+
                 <div className="tests-landing-grid">
                     <div className="landing-test-card" style={{ minHeight: 'auto', padding: '32px' }}>
                         <div className="test-card-content">
@@ -168,7 +178,7 @@ export default function Home() {
                     </div>
                 </div>
             </section>
-            
+
             <footer className="landing-footer border-top">
                 <p>&copy; {new Date().getFullYear()} STRYDE. All rights reserved.</p>
                 <p>Not a replacement for clinical diagnosis.</p>
@@ -176,3 +186,4 @@ export default function Home() {
         </div>
     );
 }
+
