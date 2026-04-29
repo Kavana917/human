@@ -179,6 +179,62 @@ export default function Home() {
                 </div>
             </section>
 
+            {/* USE CASES */}
+            <section className="landing-section border-top">
+                <div className="section-header-huge">
+                    <h2 className="section-title-huge">Use cases</h2>
+                    <span className="section-number">04</span>
+                </div>
+
+                <div className="use-cases-grid">
+                    <div className="use-case-card">
+                        <div className="use-case-index">01</div>
+                        <div className="use-case-body">
+                            <h3 className="use-case-title">Post-Operative Orthopedic Recovery</h3>
+                            <div className="use-case-detail">
+                                <span className="use-case-label">Context</span>
+                                <p>Following joint replacement or ligament repair (e.g., ACL or rotator cuff surgery), surgeons need to track the return of functional movement.</p>
+                            </div>
+                            <div className="use-case-detail">
+                                <span className="use-case-label">Value</span>
+                                <p>Instead of periodic visual checks, the system provides a continuous "30-day report" showing the exact angle of recovery, proving the effectiveness of the surgery.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="use-case-card">
+                        <div className="use-case-index">02</div>
+                        <div className="use-case-body">
+                            <h3 className="use-case-title">Military Selection &amp; Physical Readiness</h3>
+                            <div className="use-case-detail">
+                                <span className="use-case-label">Context</span>
+                                <p>Defense organizations require candidates to meet specific physical thresholds for elite roles.</p>
+                            </div>
+                            <div className="use-case-detail">
+                                <span className="use-case-label">Value</span>
+                                <p>The system acts as a "Digital Biomarker," filtering for candidates who meet "Ideal Person" benchmarks for range of motion (ROM) and stability under fatigue.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="use-case-card">
+                        <div className="use-case-index">03</div>
+                        <div className="use-case-body">
+                            <h3 className="use-case-title">Neurological Rehabilitation</h3>
+                            <p className="use-case-subtitle">Stroke &amp; Parkinson's</p>
+                            <div className="use-case-detail">
+                                <span className="use-case-label">Context</span>
+                                <p>Patients with neurological conditions often suffer from tremors or decreased mobility.</p>
+                            </div>
+                            <div className="use-case-detail">
+                                <span className="use-case-label">Value</span>
+                                <p>The "Stability Index" measures micro-variations and tremors that are invisible to the human eye, helping neurologists adjust medication or therapy based on objective data.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <footer className="landing-footer border-top">
                 <p>&copy; {new Date().getFullYear()} STRYDE. All rights reserved.</p>
                 <p>Not a replacement for clinical diagnosis.</p>

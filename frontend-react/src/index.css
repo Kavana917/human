@@ -1325,6 +1325,101 @@ input[type="number"] {
     color: #333;
 }
 
+/* Use Cases */
+.use-cases-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+}
+
+.use-case-card {
+    background: #fff;
+    border: 1px solid #111;
+    padding: 40px 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    transition: transform 0.25s ease, box-shadow 0.25s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.use-case-card::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 4px;
+    background: #111;
+    transform: scaleX(0);
+    transform-origin: left;
+    transition: transform 0.35s ease;
+}
+
+.use-case-card:hover {
+    transform: translateY(-6px);
+    box-shadow: 0 16px 32px rgba(0, 0, 0, 0.08);
+}
+
+.use-case-card:hover::after {
+    transform: scaleX(1);
+}
+
+.use-case-index {
+    font-size: 3.5rem;
+    font-weight: 500;
+    letter-spacing: -0.04em;
+    line-height: 1;
+    color: #e0e0e0;
+    user-select: none;
+}
+
+.use-case-body {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    flex: 1;
+}
+
+.use-case-title {
+    font-size: 1.5rem;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+    color: #111;
+}
+
+.use-case-subtitle {
+    font-size: 0.95rem;
+    color: #666;
+    margin-top: -12px;
+    font-weight: 400;
+}
+
+.use-case-detail {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.use-case-label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 600;
+    color: #111;
+    padding: 3px 10px;
+    border: 1px solid #111;
+    align-self: flex-start;
+}
+
+.use-case-detail p {
+    font-size: 1rem;
+    line-height: 1.6;
+    color: #555;
+}
+
 /* Footer */
 .landing-footer {
     display: flex;
@@ -1364,5 +1459,14 @@ input[type="number"] {
     .about-details {
         grid-template-columns: 1fr;
         gap: 24px;
+    }
+
+    .use-cases-grid {
+        grid-template-columns: 1fr;
+        gap: 20px;
+    }
+
+    .use-case-index {
+        font-size: 2.5rem;
     }
 }

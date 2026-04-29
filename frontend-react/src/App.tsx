@@ -10,6 +10,7 @@ import Dashboard from './pages/Dashboard';
 import TestSelection from './pages/TestSelection';
 import AbductionAdduction from './pages/tests/AbductionAdduction';
 import StandardTestPage from './pages/tests/StandardTestPage';
+import AnalysisReport from './pages/AnalysisReport';
 import CustomCursor from './components/CustomCursor';
 
 export default function App() {
@@ -47,6 +48,7 @@ export default function App() {
         <Route path="/login" element={!session ? <Login /> : <Navigate to="/" replace />} />
         <Route path="/signup" element={!session ? <Signup /> : <Navigate to="/" replace />} />
         <Route path="/onboarding" element={session ? <Onboarding /> : <Navigate to="/login" replace />} />
+        <Route path="/analysis-report" element={session ? <AnalysisReport /> : <Navigate to="/login" replace />} />
       </Routes>
     </BrowserRouter>
   );

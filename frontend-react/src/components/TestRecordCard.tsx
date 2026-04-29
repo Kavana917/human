@@ -115,6 +115,22 @@ export default function TestRecordCard({ record }: { record: any }) {
                     <h3 style={{ margin: '0 0 8px 0', fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <Activity size={20} color="#111" />
                         {record.test_type === 'AbductionAdduction' ? 'Arm - Abduction & Adduction' : record.test_type}
+                        {record.test_type?.toLowerCase().includes('arm') && (
+                            <span style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                padding: '2px 10px',
+                                borderRadius: '12px',
+                                fontSize: '0.7rem',
+                                fontWeight: 700,
+                                letterSpacing: '0.05em',
+                                backgroundColor: (record.side || 'right') === 'left' ? '#dbeafe' : '#dcfce7',
+                                color: (record.side || 'right') === 'left' ? '#1e40af' : '#166534',
+                                border: `1px solid ${(record.side || 'right') === 'left' ? '#93c5fd' : '#86efac'}`,
+                            }}>
+                                {(record.side || 'right').toUpperCase()}
+                            </span>
+                        )}
                     </h3>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#6b7280', fontSize: '0.9rem' }}>
                         <Calendar size={14} />

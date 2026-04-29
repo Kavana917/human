@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { Play, Square, Send } from 'lucide-react';
 import TestPageLayout from './TestPageLayout';
 import { TEST_LAYOUT_CONFIGS } from './testConfigs';
+import SideToggle from '../../components/SideToggle';
 
 const TABS = [
   { id: 'rom', label: 'ROM' },
@@ -15,6 +16,7 @@ export default function StandardTestPage() {
   const { testId } = useParams();
   const [activeTab, setActiveTab] = useState<(typeof TABS)[number]['id']>('rom');
   const [isRecording, setIsRecording] = useState(false);
+  const [side, setSide] = useState<'left' | 'right'>('right');
 
   const config = useMemo(() => {
     if (!testId) return null;
@@ -46,6 +48,8 @@ export default function StandardTestPage() {
           <li>Press Stop Recording and review results before submitting.</li>
         </ol>
       </div>
+
+      <SideToggle value={side} onChange={setSide} disabled={isRecording} />
 
       <div className="tabs-container">
         {TABS.map((tab) => (

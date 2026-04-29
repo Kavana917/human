@@ -5,6 +5,7 @@ import { supabase } from '../../supabaseClient';
 import * as THREE from 'three';
 import abductionVideo from '../../assets/abduction.mp4';
 import TestPageLayout from './TestPageLayout';
+import SideToggle from '../../components/SideToggle';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -218,6 +219,7 @@ export default function AbductionAdduction() {
     const [stabilityCompleted, setStabilityCompleted] = useState(false);
     const [speedCompleted, setSpeedCompleted] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [side, setSide] = useState<'left' | 'right'>('right');
 
     const handleSubmit = async () => {
         setIsSubmitting(true);
@@ -250,6 +252,7 @@ export default function AbductionAdduction() {
                 {
                     user_id: user.id,
                     test_type: 'Arm - Abduction & Adduction',
+                    side: side,
                     rom_data: romData,
                     stability_data: stabilityData,
                     speed_data: speedData
@@ -808,6 +811,8 @@ export default function AbductionAdduction() {
                             </div>
                         </div>
                     )}
+
+                    <SideToggle value={side} onChange={setSide} disabled={isRecording} />
 
                     <div className="tabs-container">
                         <button className={`tab-btn ${activeTab === 'rom' ? 'active' : ''}`} onClick={() => setActiveTab('rom')}>ROM</button>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
-import { ArrowLeft, User, Activity, Edit2, Check, X, Loader2 } from 'lucide-react';
+import { ArrowLeft, User, Activity, Edit2, Check, X, Loader2, FileBarChart } from 'lucide-react';
 import TestRecordCard from '../components/TestRecordCard';
 
 export default function Dashboard() {
@@ -239,9 +239,20 @@ export default function Dashboard() {
                     </section>
 
                     <section className="results-section">
-                        <div className="section-header">
-                            <Activity size={24} />
-                            <h2>Previous Test Results</h2>
+                        <div className="section-header" style={{ justifyContent: 'space-between', display: 'flex', alignItems: 'center', marginBottom: '24px', paddingBottom: '16px', borderBottom: '1px solid #e5e5e5', color: '#111' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <Activity size={24} />
+                                <h2 style={{ fontSize: '1.5rem', fontWeight: 500, letterSpacing: '-0.02em', margin: 0 }}>Previous Test Results</h2>
+                            </div>
+                            <button
+                                id="get-analysis-report-btn"
+                                onClick={() => navigate('/analysis-report')}
+                                className="btn-icon"
+                                style={{ margin: 0, background: '#111', color: '#fff', padding: '12px 24px', borderRadius: '6px', gap: '10px', fontWeight: 500, fontSize: '1rem', border: 'none', cursor: 'pointer' }}
+                            >
+                                <FileBarChart size={20} />
+                                <span>Get Analysis Report</span>
+                            </button>
                         </div>
                         
                         <div className="results-list">
