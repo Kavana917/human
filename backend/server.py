@@ -4,15 +4,39 @@ Core server handling ESP32 IMU data ingestion and raw data serving.
 Test-specific logic is loaded via Flask Blueprints from separate modules.
 """
 
+import os
 import threading
 from flask import Flask, jsonify, request
 from flask_cors import CORS
+from dotenv import load_dotenv
+from supabase import create_client
+
+# Load .env from project root (parent directory)
+load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
 # Import test modules
 import abduction
+import analysis
 
 app = Flask(__name__)
 CORS(app)
+
+# ---------------------------------------------------------------------------
+# Initialize Supabase client (server-side)
+# ---------------------------------------------------------------------------
+SUPABASE_URL = os.getenv('VITE_SUPABASE_URL')
+SUPABASE_KEY = os.getenv('VITE_SUPABASE_ANON_KEY')
+GROQ_API_KEY = os.getenv('GROQ_API_KEY')
+
+supabase_client = None
+if SUPABASE_URL and SUPABASE_KEY:
+    try:
+        supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        print(f"  Supabase client initialized: {SUPABASE_URL[:40]}...")
+    except Exception as e:
+        print(f"  WARNING: Failed to init Supabase client: {e}")
+else:
+    print("  WARNING: Supabase env vars not found — analysis endpoint will not work")
 
 # ---------------------------------------------------------------------------
 # Latest raw IMU data (received from ESP32)
@@ -57,6 +81,10 @@ def get_raw_data():
 abduction.init(get_latest_imu)
 app.register_blueprint(abduction.abduction_bp)
 
+# Register analysis blueprint
+analysis.init(SUPABASE_URL, SUPABASE_KEY, GROQ_API_KEY)
+app.register_blueprint(analysis.analysis_bp)
+
 
 # ===========================================================================
 # Main
@@ -77,6 +105,7 @@ if __name__ == '__main__':
     print("  GET  /data/rom          <- ROM test data")
     print("  GET  /data/stability    <- Stability test data")
     print("  GET  /data/speed        <- Speed test data")
+    print("  GET  /api/analysis/30day <- 30-day progress report")
     print("=" * 60)
 
     app.run(port=7777, host='0.0.0.0')

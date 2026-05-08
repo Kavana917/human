@@ -1,2 +1,6 @@
 flask
 flask-cors
+numpy
+groq
+supabase
+python-dotenv
