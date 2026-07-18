@@ -141,20 +141,10 @@ export default function TestRecordCard({ record }: { record: any }) {
                     <div style={{ background: '#f9fafb', padding: '8px 16px', borderRadius: '6px', border: '1px solid #e5e5e5' }}>
                         <div style={{ fontSize: '0.8rem', color: '#666' }}>Max ROM</div>
                         <div style={{ fontWeight: 'bold', fontSize: '1.1rem' }}>{romData?.maxRoll?.toFixed(0) || '-'}°</div>
-                        {romData?.assessment && (
-                            <div style={{ fontSize: '0.75rem', marginTop: '4px', color: romData.assessmentColor === 'green' ? '#166534' : romData.assessmentColor === 'orange' ? '#92400e' : '#991b1b', fontWeight: 600 }}>
-                                {romData.assessment}
-                            </div>
-                        )}
                     </div>
                     <div style={{ background: '#f9fafb', padding: '8px 16px', borderRadius: '6px', border: '1px solid #e5e5e5' }}>
                         <div style={{ fontSize: '0.8rem', color: '#666' }}>Speed Reps</div>
                         <div style={{ fontWeight: 'bold', fontSize: '1.1rem' }}>{speedData?.speedTotalReps || 0}</div>
-                        {speedData?.speedConsistency !== undefined && speedData.speedConsistency !== null && (
-                            <div style={{ fontSize: '0.75rem', marginTop: '4px', color: speedData.speedConsistency < 0.5 ? '#166534' : speedData.speedConsistency <= 1.0 ? '#92400e' : '#991b1b', fontWeight: 600 }}>
-                                {speedData.speedConsistency < 0.5 ? 'Very Consistent' : speedData.speedConsistency <= 1.0 ? 'Consistent' : 'Inconsistent'}
-                            </div>
-                        )}
                     </div>
                 </div>
             </div>
@@ -191,17 +181,11 @@ export default function TestRecordCard({ record }: { record: any }) {
                             <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
                                 {stabilityData?.results && Object.entries(stabilityData.results).map(([phase, result]: [string, any]) => {
                                     const dev = result.std_deviation || 0;
-                                    const stabilityLabel = dev < 2 ? 'Very Stable' : dev <= 4 ? 'Stable' : 'Unstable';
-                                    const color = dev < 2 ? '#166534' : dev <= 4 ? '#92400e' : '#991b1b';
-                                    const bg = dev < 2 ? '#dcfce7' : dev <= 4 ? '#fef3c7' : '#fee2e2';
 
                                     return (
                                         <div key={phase} style={{ flex: 1, background: '#fff', padding: '12px', borderRadius: '6px', border: '1px solid #e5e5e5', textAlign: 'center', minWidth: '120px' }}>
                                             <div style={{ fontSize: '0.9rem', fontWeight: 'bold' }}>{result.target_angle}° Position</div>
-                                            <div style={{ fontSize: '0.8rem', color: '#666', marginTop: '4px', marginBottom: '8px' }}>SD: {dev.toFixed(2)}°</div>
-                                            <div style={{ display: 'inline-block', padding: '4px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600, backgroundColor: bg, color: color }}>
-                                                {stabilityLabel}
-                                            </div>
+                                            <div style={{ fontSize: '0.8rem', color: '#666', marginTop: '4px' }}>SD: {dev.toFixed(2)}°</div>
                                         </div>
                                     )
                                 })}

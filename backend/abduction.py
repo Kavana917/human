@@ -206,15 +206,6 @@ def data_rom():
 
         rom_max_angle = max_roll
 
-        assessment = "Needs Improvement"
-        assessment_color = "red"
-        if max_roll >= 150:
-            assessment = "Excellent"
-            assessment_color = "green"
-        elif max_roll >= 90:
-            assessment = "Moderate"
-            assessment_color = "orange"
-
         return {
             "status": "ok",
             "times": times,
@@ -224,13 +215,6 @@ def data_rom():
             "maxRoll": max_roll,
             "baseline": rom_baseline if rom_baseline_set else 0,
             "baselineSet": rom_baseline_set,
-            "assessment": assessment,
-            "assessmentColor": assessment_color,
-            "referenceRanges": {
-                "shoulderLevel": 90,
-                "fullAbduction": 150,
-                "maximum": 180
-            }
         }
     return {"status": "empty"}
 

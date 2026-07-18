@@ -105,7 +105,8 @@ if __name__ == '__main__':
     print("  GET  /data/rom          <- ROM test data")
     print("  GET  /data/stability    <- Stability test data")
     print("  GET  /data/speed        <- Speed test data")
-    print("  GET  /api/analysis/30day <- 30-day progress report")
+    print("  GET  /api/analysis/30day   <- 30-day progress report")
+    print("  GET  /api/analysis/session <- profile-based session assessment")
     print("=" * 60)
 
     app.run(port=7777, host='0.0.0.0')

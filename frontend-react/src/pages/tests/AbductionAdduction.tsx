@@ -171,8 +171,6 @@ interface ChartData {
     maxRoll?: number;
     baseline?: number;
     baselineSet?: boolean;
-    assessment?: string;
-    assessmentColor?: string;
     referenceRanges?: {
         shoulderLevel: number;
         fullAbduction: number;
@@ -208,6 +206,28 @@ interface ChartData {
     speedTestComplete?: boolean;
     speedUserMaxAngle?: number;
     speedRepsPerMinute?: number;
+}
+
+function RecordedBadge() {
+    return (
+        <div
+            style={{
+                padding: '12px 16px',
+                background: '#f0fdf4',
+                border: '1px solid #86efac',
+                borderRadius: '8px',
+                margin: '0 16px 16px 16px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+            }}
+        >
+            <span style={{ fontWeight: 600, fontSize: '0.9rem', color: '#166534' }}>Recorded</span>
+            <span style={{ fontSize: '0.8rem', color: '#6b7280' }}>
+                Data captured for this test. Profile-based analysis is available on the dashboard.
+            </span>
+        </div>
+    );
 }
 
 export default function AbductionAdduction() {
@@ -247,13 +267,15 @@ export default function AbductionAdduction() {
             const stabilityData = await stabilityRes.json();
             const speedData = await speedRes.json();
 
+            const { assessment: _a, assessmentColor: _c, ...romPayload } = romData;
+
             // Store in Supabase
             const { error } = await supabase.from('test_results').insert([
                 {
                     user_id: user.id,
                     test_type: 'Arm - Abduction & Adduction',
                     side: side,
-                    rom_data: romData,
+                    rom_data: romPayload,
                     stability_data: stabilityData,
                     speed_data: speedData
                 }
@@ -287,6 +309,16 @@ export default function AbductionAdduction() {
         setIsRecording(newState);
         try {
             await fetch(`http://localhost:7777/toggle_recording/${activeTab}/${newState ? 'start' : 'stop'}`);
+            if (activeTab === 'rom' && !newState) {
+                const res = await fetch(`http://localhost:7777/data/rom?t=${Date.now()}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    setChartData(data);
+                    if (data.status === 'ok' && data.maxRoll) {
+                        setRomCompleted(true);
+                    }
+                }
+            }
         } catch (e) {
             console.error("Failed to toggle backend recording", e);
         }
@@ -299,10 +331,8 @@ export default function AbductionAdduction() {
                 const data = await res.json();
                 setChartData(data);
                 
-                // Track test completion
-                if (activeTab === 'rom' && data.status === 'ok' && data.maxRoll) {
-                    setRomCompleted(true);
-                } else if (activeTab === 'stability' && data.testComplete) {
+                // Track test completion (ROM completes on stop, not mid-recording)
+                if (activeTab === 'stability' && data.testComplete) {
                     setStabilityCompleted(true);
                 } else if (activeTab === 'speed' && data.speedTestComplete) {
                     setSpeedCompleted(true);
@@ -764,11 +794,6 @@ export default function AbductionAdduction() {
                                 • <span style={{color: '#ef4444'}}>Count:</span> Rep is counted when peak is crossed upward<br/>
                                 • <strong>One rep = Base → Peak (no down-return required)</strong>
                             </div>
-                            <div style={{ marginTop: '12px', padding: '12px 16px', background: '#f8f8f8', borderRadius: '6px', fontSize: '0.9rem', color: '#111', border: '1px solid #e5e5e5' }}>
-                                <strong>📊 Scoring:</strong><br/>
-                                • ≥18 reps = Excellent | 10-17 reps = Good | {'<'}10 reps = Needs Attention<br/>
-                                • Consistency {'<'}0.5s = Very Consistent | 0.5-1.0s = Consistent | {'>'}1.0s = Inconsistent
-                            </div>
                         </div>
                     )}
 
@@ -806,9 +831,6 @@ export default function AbductionAdduction() {
                                 <li style={{ marginBottom: '8px' }}>Move to your maximum angle and hold steady when prompted (5 seconds countdown + 5 seconds hold)</li>
                                 <li>Test will complete automatically after all 4 positions</li>
                             </ol>
-                            <div style={{ marginTop: '16px', padding: '12px 16px', background: '#f8f8f8', borderRadius: '6px', fontSize: '0.9rem', color: '#111', border: '1px solid #e5e5e5' }}>
-                                <strong>Stability Metrics:</strong> {'<2° (Very Stable) | 2-4° (Stable) | >4° (Unstable)'}
-                            </div>
                         </div>
                     )}
 
@@ -829,37 +851,9 @@ export default function AbductionAdduction() {
                             <IMUVisualizer />
                         </div>
 
-                        {/* ROM Assessment Display */}
-                        {activeTab === 'rom' && chartData && chartData.status !== 'empty' && chartData.baselineSet && (
-                            <div style={{ 
-                                padding: '12px 16px', 
-                                background: chartData.assessmentColor === 'green' ? '#f0fdf4' : 
-                                          chartData.assessmentColor === 'orange' ? '#fffbeb' : '#fef2f2',
-                                border: `1px solid ${chartData.assessmentColor === 'green' ? '#86efac' : 
-                                                   chartData.assessmentColor === 'orange' ? '#fcd34d' : '#fca5a5'}`,
-                                borderRadius: '8px',
-                                margin: '0 16px 16px 16px',
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center'
-                            }}>
-                                <div>
-                                    <div style={{ fontWeight: 600, fontSize: '0.9rem', color: chartData.assessmentColor === 'green' ? '#166534' : 
-                                                                                        chartData.assessmentColor === 'orange' ? '#92400e' : '#991b1b' }}>
-                                        Assessment: {chartData.assessment}
-                                    </div>
-                                    <div style={{ fontSize: '0.8rem', color: '#6b7280', marginTop: '2px' }}>
-                                        Max Angle: {chartData.maxRoll?.toFixed(1)}° | Baseline: {chartData.baseline?.toFixed(1)}°
-                                    </div>
-                                </div>
-                                <div style={{ 
-                                    width: '12px', 
-                                    height: '12px', 
-                                    borderRadius: '50%', 
-                                    backgroundColor: chartData.assessmentColor 
-                                }} />
-                            </div>
-                        )}
+                        {activeTab === 'rom' && romCompleted && !isRecording && <RecordedBadge />}
+                        {activeTab === 'speed' && speedCompleted && <RecordedBadge />}
+                        {activeTab === 'stability' && stabilityCompleted && <RecordedBadge />}
 
                         {/* Speed Test Status Display */}
                         {activeTab === 'speed' && isRecording && chartData && (
@@ -1041,154 +1035,55 @@ export default function AbductionAdduction() {
                             </div>
                         )}
 
-                        {/* Speed Test Results */}
+                        {/* Speed Test — raw metrics */}
                         {activeTab === 'speed' && chartData && chartData.speedTestComplete && (
-                            <div style={{ 
-                                padding: '16px', 
-                                background: '#fff', 
+                            <div style={{
+                                padding: '16px',
+                                background: '#fff',
                                 border: '1px solid #e5e5e5',
                                 borderRadius: '8px',
                                 margin: '0 16px 16px 16px',
                             }}>
                                 <h4 style={{ margin: '0 0 12px 0', fontSize: '1rem', fontWeight: 600, color: '#111' }}>
-                                    🏆 Speed Test Results
+                                    Speed Test — Recorded
                                 </h4>
-                                
-                                {/* Total Reps */}
-                                <div style={{ 
-                                    padding: '12px 16px', 
-                                    background: '#f9fafb', 
-                                    borderRadius: '6px', 
-                                    marginBottom: '12px',
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    alignItems: 'center'
-                                }}>
+                                <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
                                     <div>
-                                        <div style={{ fontWeight: 500, fontSize: '0.9rem', color: '#111' }}>
-                                            Total Reps (30 seconds)
-                                        </div>
-                                        <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#6366f1' }}>
-                                            {chartData.speedTotalReps || 0}
-                                        </div>
-                                        {chartData.speedRepsPerMinute && (
-                                            <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>
-                                                ≈ {chartData.speedRepsPerMinute} reps/min
-                                            </div>
-                                        )}
+                                        <div style={{ fontSize: '0.8rem', color: '#6b7280' }}>Total reps (30s)</div>
+                                        <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#111' }}>{chartData.speedTotalReps || 0}</div>
                                     </div>
-                                    <div style={{ 
-                                        padding: '6px 12px', 
-                                        borderRadius: '6px', 
-                                        fontSize: '0.85rem', 
-                                        fontWeight: 600,
-                                        backgroundColor: (chartData.speedTotalReps || 0) >= 18 ? '#dcfce7' : 
-                                                         (chartData.speedTotalReps || 0) >= 10 ? '#fef3c7' : '#fee2e2',
-                                        color: (chartData.speedTotalReps || 0) >= 18 ? '#166534' : 
-                                              (chartData.speedTotalReps || 0) >= 10 ? '#92400e' : '#991b1b'
-                                    }}>
-                                        {(chartData.speedTotalReps || 0) >= 18 ? '✓ Excellent' : 
-                                         (chartData.speedTotalReps || 0) >= 10 ? '◐ Good' : '✗ Needs Attention'}
-                                    </div>
-                                </div>
-                                
-                                {/* Consistency Score */}
-                                {chartData.speedConsistency !== null && chartData.speedConsistency !== undefined && (
-                                    <div style={{ 
-                                        padding: '12px 16px', 
-                                        background: '#f9fafb', 
-                                        borderRadius: '6px', 
-                                        marginBottom: '12px',
-                                        display: 'flex',
-                                        justifyContent: 'space-between',
-                                        alignItems: 'center'
-                                    }}>
+                                    {chartData.speedConsistency != null && chartData.speedConsistency !== undefined && (
                                         <div>
-                                            <div style={{ fontWeight: 500, fontSize: '0.9rem', color: '#111' }}>
-                                                Consistency Score
-                                            </div>
-                                            <div style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '2px' }}>
-                                                Std deviation of rep intervals (lower = more consistent)
-                                            </div>
-                                            <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#6366f1', marginTop: '4px' }}>
-                                                {chartData.speedConsistency.toFixed(2)}s
-                                            </div>
+                                            <div style={{ fontSize: '0.8rem', color: '#6b7280' }}>Rep interval consistency (SD)</div>
+                                            <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#111' }}>{chartData.speedConsistency.toFixed(2)}s</div>
                                         </div>
-                                        <div style={{ 
-                                            padding: '6px 12px', 
-                                            borderRadius: '6px', 
-                                            fontSize: '0.85rem', 
-                                            fontWeight: 600,
-                                            backgroundColor: chartData.speedConsistency < 0.5 ? '#dcfce7' : 
-                                                             chartData.speedConsistency <= 1.0 ? '#fef3c7' : '#fee2e2',
-                                            color: chartData.speedConsistency < 0.5 ? '#166534' : 
-                                                  chartData.speedConsistency <= 1.0 ? '#92400e' : '#991b1b'
-                                        }}>
-                                            {chartData.speedConsistency < 0.5 ? '✓ Very Consistent' : 
-                                             chartData.speedConsistency <= 1.0 ? '◐ Consistent' : '✗ Inconsistent'}
-                                        </div>
-                                    </div>
-                                )}
-                                
-                                <div style={{ 
-                                    padding: '8px 12px', 
-                                    background: '#f0f9ff', 
-                                    borderRadius: '6px', 
-                                    fontSize: '0.8rem', 
-                                    color: '#374151' 
-                                }}>
-                                    <strong>Performance Analysis:</strong> {
-                                        ((chartData.speedTotalReps || 0) >= 18 && (chartData.speedConsistency || 0) < 0.5) ? 'Excellent speed and consistency!' :
-                                        ((chartData.speedTotalReps || 0) >= 10 && (chartData.speedConsistency || 0) <= 1.0) ? 'Good performance with room for improvement.' :
-                                        'Focus on building endurance and movement consistency.'
-                                    }
+                                    )}
                                 </div>
                             </div>
                         )}
 
-                        {/* Stability Test Results */}
+                        {/* Stability Test — raw metrics */}
                         {activeTab === 'stability' && chartData && chartData.testComplete && chartData.results && (
-                            <div style={{ 
-                                padding: '16px', 
-                                background: '#fff', 
+                            <div style={{
+                                padding: '16px',
+                                background: '#fff',
                                 border: '1px solid #e5e5e5',
                                 borderRadius: '8px',
                                 margin: '0 16px 16px 16px',
                             }}>
                                 <h4 style={{ margin: '0 0 12px 0', fontSize: '1rem', fontWeight: 600, color: '#111' }}>
-                                      Stability Test Results
+                                    Stability Test — Recorded
                                 </h4>
                                 {Object.entries(chartData.results).map(([phase, result]) => (
-                                    <div key={phase} style={{ 
-                                        padding: '8px 12px', 
-                                        background: '#f9fafb', 
-                                        borderRadius: '6px', 
+                                    <div key={phase} style={{
+                                        padding: '8px 12px',
+                                        background: '#f9fafb',
+                                        borderRadius: '6px',
                                         marginBottom: '8px',
-                                        display: 'flex',
-                                        justifyContent: 'space-between',
-                                        alignItems: 'center'
+                                        fontSize: '0.9rem',
+                                        color: '#374151',
                                     }}>
-                                        <div>
-                                            <div style={{ fontWeight: 500, fontSize: '0.9rem', color: '#111' }}>
-                                                {result.target_angle}° Position
-                                            </div>
-                                            <div style={{ fontSize: '0.8rem', color: '#6b7280' }}>
-                                                Std Dev: {result.std_deviation.toFixed(2)}° | Range: {result.range.toFixed(2)}°
-                                            </div>
-                                        </div>
-                                        <div style={{ 
-                                            padding: '4px 8px', 
-                                            borderRadius: '4px', 
-                                            fontSize: '0.75rem', 
-                                            fontWeight: 600,
-                                            backgroundColor: result.std_deviation < 1 ? '#dcfce7' : 
-                                                             result.std_deviation <= 3 ? '#fef3c7' : '#fee2e2',
-                                            color: result.std_deviation < 1 ? '#166534' : 
-                                                  result.std_deviation <= 3 ? '#92400e' : '#991b1b'
-                                        }}>
-                                            {result.std_deviation < 2 ? 'Very Stable' : 
-                                             result.std_deviation <= 4 ? 'Stable' : 'Unstable'}
-                                        </div>
+                                        <strong>{result.target_angle}°</strong> — Std dev {result.std_deviation.toFixed(2)}°, range {result.range.toFixed(2)}°
                                     </div>
                                 ))}
                             </div>

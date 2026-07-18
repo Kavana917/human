@@ -88,8 +88,6 @@ def generate_mock_record(test_type, side, session_info):
         "maxRoll": round(base_rom, 1),
         "baseline": 0,
         "baselineSet": True,
-        "assessment": "Excellent" if base_rom >= 130 else ("Moderate" if base_rom >= 90 else "Needs Improvement"),
-        "assessmentColor": "green" if base_rom >= 130 else ("orange" if base_rom >= 90 else "red"),
         "referenceRanges": { "shoulderLevel": 90, "fullAbduction": 150, "maximum": 180 }
     }
     

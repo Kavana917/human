@@ -14,6 +14,8 @@ import numpy as np
 import requests
 import urllib.parse
 
+from normative import get_normative_targets, extract_session_metrics, assess_session
+
 analysis_bp = Blueprint('analysis', __name__)
 
 # ---------------------------------------------------------------------------
@@ -247,12 +249,15 @@ def compute_stability_delta(sessions):
     }
 
 
-def compute_predicted_recovery(recovery_slope, consistency_index, target_rom=150):
+def compute_predicted_recovery(recovery_slope, consistency_index, target_rom=None):
     """
     Extrapolate: days = (target - current) / slope, adjusted by consistency.
     """
     if not recovery_slope or not consistency_index:
         return None
+
+    if target_rom is None:
+        target_rom = 150
 
     latest_rom = recovery_slope['latest_rom']
     slope = recovery_slope['slope_per_day']
@@ -464,6 +469,49 @@ If there are no risk flags, use an empty array: "risk_flags": []
 
 
 # ===========================================================================
+# HELPERS — Supabase HTTP
+# ===========================================================================
+
+def _supabase_headers():
+    auth_header = request.headers.get('Authorization', '')
+    return {
+        'apikey': _supabase_key,
+        'Authorization': auth_header if auth_header else f'Bearer {_supabase_key}',
+        'Content-Type': 'application/json',
+    }
+
+
+def fetch_profile(user_id: str) -> dict:
+    headers = _supabase_headers()
+    profile_url = (
+        f"{_supabase_url}/rest/v1/profiles"
+        f"?id=eq.{user_id}"
+        f"&select=age,gender,activity_level,has_injury,injury_notes,height_cm,weight_kg"
+    )
+    profile_resp = requests.get(profile_url, headers=headers)
+    profile_data = profile_resp.json() if profile_resp.status_code == 200 else []
+    return profile_data[0] if profile_data else {}
+
+
+def fetch_latest_test_result(user_id: str, test_type: str, side: str):
+    headers = _supabase_headers()
+    params = {
+        'user_id': f'eq.{user_id}',
+        'test_type': f'eq.{test_type}',
+        'side': f'eq.{side}',
+        'order': 'created_at.desc',
+        'limit': '1',
+        'select': 'id,created_at,rom_data,stability_data,speed_data',
+    }
+    url = f"{_supabase_url}/rest/v1/test_results"
+    resp = requests.get(url, headers=headers, params=params)
+    if resp.status_code != 200:
+        return None
+    rows = resp.json()
+    return rows[0] if rows else None
+
+
+# ===========================================================================
 # ENDPOINT
 # ===========================================================================
 
@@ -493,6 +541,66 @@ def analysis_debug():
         return jsonify({'error': str(e)}), 500
 
 
+@analysis_bp.route('/api/analysis/session')
+def analysis_session():
+    """
+    GET /api/analysis/session?user_id=&test_type=&side=
+  Profile-aware assessment of the most recent test session vs normative targets.
+    """
+    user_id = request.args.get('user_id')
+    test_type = request.args.get('test_type', 'Arm - Abduction & Adduction')
+    side = request.args.get('side', 'right')
+
+    if not user_id:
+        return jsonify({'error': 'user_id is required'}), 400
+    if not _supabase_url or not _supabase_key:
+        return jsonify({'error': 'Supabase client not initialized'}), 500
+
+    try:
+        profile = fetch_profile(user_id)
+        row = fetch_latest_test_result(user_id, test_type, side)
+
+        if not row:
+            return jsonify({
+                'error': 'no_session',
+                'message': f'No saved test found for "{test_type}" ({side} side). Complete and submit a test first.',
+            }), 200
+
+        metrics = extract_session_metrics(row)
+        if not metrics:
+            return jsonify({
+                'error': 'invalid_session',
+                'message': 'Latest session has no valid ROM data.',
+            }), 200
+
+        assessment = assess_session(metrics, profile)
+        norms = assessment['normative_targets']
+
+        created = row.get('created_at', '')
+        try:
+            session_date = datetime.fromisoformat(created.replace('Z', '+00:00')).strftime('%Y-%m-%d %H:%M')
+        except Exception:
+            session_date = created
+
+        return jsonify({
+            'session_assessment': assessment,
+            'session_metrics': metrics,
+            'session_meta': {
+                'test_result_id': row.get('id'),
+                'created_at': created,
+                'session_date': session_date,
+                'test_type': test_type,
+                'side': side,
+            },
+            'normative_targets': norms,
+        })
+
+    except Exception as e:
+        print(f"[Analysis] Session error: {e}")
+        traceback.print_exc()
+        return jsonify({'error': f'Session analysis failed: {str(e)}'}), 500
+
+
 @analysis_bp.route('/api/analysis/30day')
 def analysis_30day():
     """
@@ -519,12 +627,7 @@ def analysis_30day():
         # --- Fetch test results (last 30 days) via direct HTTP request ---
         thirty_days_ago = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
         
-        auth_header = request.headers.get('Authorization', '')
-        headers = {
-            'apikey': _supabase_key,
-            'Authorization': auth_header if auth_header else f'Bearer {_supabase_key}',
-            'Content-Type': 'application/json'
-        }
+        headers = _supabase_headers()
 
         # 1. Debug: Fetch total records for this user (any type/side)
         debug_url = f"{_supabase_url}/rest/v1/test_results?user_id=eq.{user_id}&order=created_at.desc&limit=10"
@@ -552,7 +655,7 @@ def analysis_30day():
         import json
         with open('debug.json', 'w') as f:
             json.dump({
-                'auth_header_received': auth_header,
+                'auth_header_received': request.headers.get('Authorization', ''),
                 'debug_url': debug_url,
                 'debug_status': debug_resp.status_code,
                 'debug_response': debug_rows,
@@ -562,11 +665,9 @@ def analysis_30day():
                 'main_rows_data': rows
             }, f, indent=2)
 
-        # 3. Profile query
-        profile_url = f"{_supabase_url}/rest/v1/profiles?id=eq.{user_id}&select=age,gender,activity_level,has_injury,injury_notes"
-        profile_resp = requests.get(profile_url, headers=headers)
-        profile_data = profile_resp.json() if profile_resp.status_code == 200 else []
-        profile = profile_data[0] if profile_data else {}
+        profile = fetch_profile(user_id)
+        norms = get_normative_targets(profile)
+        target_rom = norms['rom_full_abduction']
 
         # --- Extract sessions ---
         sessions = extract_sessions(rows)
@@ -611,7 +712,26 @@ def analysis_30day():
         recovery_slope = compute_recovery_slope(sessions)
         consistency_index = compute_consistency_index(sessions)
         stability_delta = compute_stability_delta(sessions)
-        predicted_recovery = compute_predicted_recovery(recovery_slope, consistency_index)
+        predicted_recovery = compute_predicted_recovery(
+            recovery_slope, consistency_index, target_rom=target_rom
+        )
+
+        # --- Normative assessment for latest session ---
+        session_assessment = None
+        session_meta = None
+        if rows:
+            latest_row = rows[-1]
+            latest_metrics = extract_session_metrics(latest_row)
+            if latest_metrics:
+                session_assessment = assess_session(latest_metrics, profile)
+                created = latest_row.get('created_at', '')
+                try:
+                    session_date = datetime.fromisoformat(
+                        created.replace('Z', '+00:00')
+                    ).strftime('%Y-%m-%d %H:%M')
+                except Exception:
+                    session_date = created
+                session_meta = {'session_date': session_date, 'created_at': created}
 
         # --- Chart data ---
         first_date = sessions[0]['date']
@@ -621,6 +741,9 @@ def analysis_30day():
             'rep_counts': [s['reps'] for s in sessions],
             'avg_stability_sds': [round(s['avg_sd'], 2) if s['avg_sd'] is not None else None for s in sessions],
             'regression_line': recovery_slope['regression_line'] if recovery_slope else [],
+            'reference_rom_excellent': norms['rom_excellent'],
+            'reference_rom_moderate': norms['rom_moderate'],
+            'reference_speed_excellent': norms['speed_excellent_reps'],
         }
 
         # --- AI Insights (Groq) ---
@@ -637,6 +760,9 @@ def analysis_30day():
             'predicted_recovery': predicted_recovery,
             'chart_data': chart_data,
             'ai_insights': ai_insights,
+            'normative_targets': norms,
+            'session_assessment': session_assessment,
+            'session_meta': session_meta,
             'meta': {
                 'user_id': user_id,
                 'test_type': test_type,

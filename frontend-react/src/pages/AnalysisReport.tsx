@@ -1,11 +1,11 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 import generatePDF from 'react-to-pdf';
 import {
     ArrowLeft, TrendingUp, CalendarCheck, Shield, Clock,
     Brain, Lightbulb, AlertTriangle, Telescope, Loader2,
-    FileBarChart, BarChart3, Download
+    FileBarChart, BarChart3, Download, User, Target
 } from 'lucide-react';
 import {
     Chart as ChartJS,
@@ -72,7 +72,13 @@ interface AnalysisResponse {
         rep_counts: number[];
         avg_stability_sds: (number | null)[];
         regression_line: number[];
+        reference_rom_excellent?: number;
+        reference_rom_moderate?: number;
+        reference_speed_excellent?: number;
     };
+    normative_targets?: NormativeTargets;
+    session_assessment?: SessionAssessment;
+    session_meta?: { session_date: string; created_at: string };
     ai_insights: {
         summary?: string;
         detail?: string;
@@ -93,6 +99,60 @@ interface AnalysisResponse {
     record_count?: number;
 }
 
+interface NormativeTargets {
+    rom_excellent: number;
+    rom_moderate: number;
+    rom_full_abduction: number;
+    speed_excellent_reps: number;
+    speed_good_reps: number;
+    stability_excellent_sd: number;
+    stability_moderate_sd: number;
+    profile_summary: {
+        age: number;
+        gender: string;
+        activity_level: string;
+        has_injury: boolean;
+    };
+}
+
+interface MetricAssessment {
+    value?: number;
+    reps?: number;
+    tier: string;
+    label: string;
+    color: string;
+    percent_of_ideal: number;
+    expected_excellent?: number;
+    expected_moderate?: number;
+    expected_excellent_sd?: number;
+    expected_moderate_sd?: number;
+    expected_excellent_reps?: number;
+    expected_good_reps?: number;
+    consistency?: { value: number; label: string; color: string };
+}
+
+interface SessionAssessment {
+    normative_targets: NormativeTargets;
+    rom: MetricAssessment;
+    stability: MetricAssessment | null;
+    speed: MetricAssessment & { reps: number };
+    overall: { label: string; color: string };
+}
+
+interface SessionResponse {
+    session_assessment: SessionAssessment;
+    session_meta: { session_date: string; test_type: string; side: string };
+    normative_targets: NormativeTargets;
+    error?: string;
+    message?: string;
+}
+
+function tierColors(color: string) {
+    if (color === 'green') return { bg: '#f0fdf4', border: '#86efac', text: '#166534' };
+    if (color === 'orange') return { bg: '#fffbeb', border: '#fcd34d', text: '#92400e' };
+    return { bg: '#fef2f2', border: '#fca5a5', text: '#991b1b' };
+}
+
 const TEST_OPTIONS = [
     { value: 'Arm - Abduction & Adduction', label: 'Arm - Abduction & Adduction' },
     { value: 'Arm - Flexion & Extension', label: 'Arm - Flexion & Extension' },
@@ -105,7 +165,9 @@ export default function AnalysisReport() {
     const navigate = useNavigate();
     const [loading, setLoading] = useState(false);
     const [data, setData] = useState<AnalysisResponse | null>(null);
+    const [sessionData, setSessionData] = useState<SessionResponse | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [progressNote, setProgressNote] = useState<string | null>(null);
     const [side, setSide] = useState<'left' | 'right'>('right');
     const [selectedTest, setSelectedTest] = useState<string>(TEST_OPTIONS[0].value);
     const [hasGenerated, setHasGenerated] = useState(false);
@@ -114,48 +176,77 @@ export default function AnalysisReport() {
     const generateReport = async () => {
         setLoading(true);
         setError(null);
+        setProgressNote(null);
         setData(null);
+        setSessionData(null);
 
         try {
-            let session = null;
+            let authSession = null;
             let sessionError = null;
-            // Retry mechanism for Supabase Lock Acquire Timeout
             for (let i = 0; i < 3; i++) {
                 const res = await supabase.auth.getSession();
-                session = res.data.session;
+                authSession = res.data.session;
                 sessionError = res.error;
                 if (!sessionError) break;
-                await new Promise(r => setTimeout(r, 500)); // wait 500ms and retry
+                await new Promise(r => setTimeout(r, 500));
             }
 
-            if (sessionError || !session) {
+            if (sessionError || !authSession) {
                 setError('You must be logged in. Please refresh the page.');
                 setLoading(false);
                 return;
             }
 
             const testType = encodeURIComponent(selectedTest);
-            const url = `http://localhost:7777/api/analysis/30day?user_id=${session.user.id}&test_type=${testType}&side=${side}`;
+            const headers = { Authorization: `Bearer ${authSession.access_token}` };
+            const base = `http://localhost:7777/api/analysis`;
+            const qs = `user_id=${authSession.user.id}&test_type=${testType}&side=${side}`;
 
-            const res = await fetch(url, {
-                headers: {
-                    'Authorization': `Bearer ${session.access_token}`
-                }
-            });
-            if (!res.ok) {
-                const errData = await res.json().catch(() => ({}));
-                throw new Error(errData.error || `Server error ${res.status}`);
+            const [sessionRes, progressRes] = await Promise.all([
+                fetch(`${base}/session?${qs}`, { headers }),
+                fetch(`${base}/30day?${qs}`, { headers }),
+            ]);
+
+            const sessionJson: SessionResponse = await sessionRes.json();
+            const progressJson: AnalysisResponse = await progressRes.json();
+
+            if (sessionJson.error === 'no_session' || sessionJson.error === 'invalid_session') {
+                setError(sessionJson.message || 'No test session found. Complete and submit a test first.');
+                setHasGenerated(true);
+                return;
+            }
+            if (sessionJson.session_assessment) {
+                setSessionData(sessionJson);
             }
 
-            const result: AnalysisResponse = await res.json();
-
-            if (result.error === 'insufficient_data') {
-                setError(result.message || `Need at least 3 test sessions. Found ${result.record_count || 0}.`);
-            } else if (result.error) {
-                setError(result.error);
+            if (progressJson.error === 'insufficient_data') {
+                setProgressNote(
+                    progressJson.message ||
+                    `30-day progress needs at least 3 sessions (found ${progressJson.record_count || 0}). Normative assessment below uses your latest test.`
+                );
+            } else if (progressJson.error) {
+                setProgressNote(`Progress tracking unavailable: ${progressJson.error}`);
+            } else if (!progressRes.ok) {
+                setProgressNote('Could not load 30-day progress data.');
             } else {
-                setData(result);
+                setData(progressJson);
+                if (progressJson.session_assessment && !sessionJson.session_assessment) {
+                    setSessionData({
+                        session_assessment: progressJson.session_assessment,
+                        session_meta: {
+                            session_date: progressJson.session_meta?.session_date || '',
+                            test_type: selectedTest,
+                            side,
+                        },
+                        normative_targets: progressJson.normative_targets!,
+                    });
+                }
             }
+
+            if (!sessionJson.session_assessment && !progressJson.session_assessment && progressJson.error !== 'insufficient_data') {
+                setError('Unable to generate report. Please try again.');
+            }
+
             setHasGenerated(true);
         } catch (e) {
             setError((e as Error).message || 'Failed to generate report.');
@@ -165,9 +256,100 @@ export default function AnalysisReport() {
         }
     };
 
+    const assessmentSource = sessionData?.session_assessment ?? data?.session_assessment;
+    const sessionMeta = sessionData?.session_meta ?? data?.session_meta;
+    const norms = sessionData?.normative_targets ?? data?.normative_targets ?? assessmentSource?.normative_targets;
+
+    const renderNormativeSection = () => {
+        if (!assessmentSource) return null;
+        const a = assessmentSource;
+        const profile = norms?.profile_summary;
+
+        const renderMetricCard = (
+            title: string,
+            actual: string,
+            expected: string,
+            metric: MetricAssessment,
+        ) => {
+            const c = tierColors(metric.color);
+            return (
+                <div className="analysis-metric-card" style={{ background: c.bg, borderColor: c.border }}>
+                    <div className="metric-label">{title}</div>
+                    <div className="metric-value" style={{ color: c.text }}>{metric.label}</div>
+                    <div className="metric-sub" style={{ marginTop: '8px' }}>
+                        <div><strong>You:</strong> {actual}</div>
+                        <div><strong>Profile target:</strong> {expected}</div>
+                        <div style={{ marginTop: '6px' }}>{metric.percent_of_ideal}% of ideal</div>
+                    </div>
+                </div>
+            );
+        };
+
+        return (
+            <section style={{ marginBottom: '32px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+                    <Target size={22} />
+                    <h2 style={{ margin: 0, fontSize: '1.35rem' }}>Profile-Based Assessment</h2>
+                </div>
+                <p style={{ color: '#6b7280', fontSize: '0.95rem', margin: '0 0 16px 0' }}>
+                    Compared to expected performance for your profile
+                    {profile ? ` (age ${profile.age}, ${profile.gender}, ${profile.activity_level}${profile.has_injury ? ', injury reported' : ''})` : ''}.
+                    {sessionMeta?.session_date ? ` Latest session: ${sessionMeta.session_date}.` : ''}
+                </p>
+
+                <div style={{
+                    padding: '16px 20px',
+                    borderRadius: '8px',
+                    marginBottom: '20px',
+                    background: tierColors(a.overall.color).bg,
+                    border: `1px solid ${tierColors(a.overall.color).border}`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                }}>
+                    <div>
+                        <div style={{ fontSize: '0.85rem', color: '#6b7280' }}>Overall session grade</div>
+                        <div style={{ fontSize: '1.5rem', fontWeight: 700, color: tierColors(a.overall.color).text }}>
+                            {a.overall.label}
+                        </div>
+                    </div>
+                    <User size={28} style={{ color: tierColors(a.overall.color).text, opacity: 0.5 }} />
+                </div>
+
+                <div className="analysis-metrics-grid">
+                    {renderMetricCard(
+                        'Range of Motion',
+                        `${a.rom.value}°`,
+                        `≥${a.rom.expected_excellent}° excellent · ≥${a.rom.expected_moderate}° moderate`,
+                        a.rom,
+                    )}
+                    {a.stability && renderMetricCard(
+                        'Stability (avg hold SD)',
+                        `${a.stability.value}°`,
+                        `<${a.stability.expected_excellent_sd}° very stable · ≤${a.stability.expected_moderate_sd}° stable`,
+                        a.stability,
+                    )}
+                    {renderMetricCard(
+                        'Speed (30s reps)',
+                        `${a.speed.reps} reps`,
+                        `≥${a.speed.expected_excellent_reps} excellent · ≥${a.speed.expected_good_reps} good`,
+                        a.speed,
+                    )}
+                </div>
+                {a.speed.consistency && (
+                    <p style={{ fontSize: '0.9rem', color: '#6b7280', marginTop: '12px' }}>
+                        Rep consistency: {a.speed.consistency.value}s — {a.speed.consistency.label}
+                    </p>
+                )}
+            </section>
+        );
+    };
+
     const renderChart = () => {
         if (!data?.chart_data) return null;
         const cd = data.chart_data;
+        const romExcellent = cd.reference_rom_excellent ?? norms?.rom_excellent ?? 150;
+        const romModerate = cd.reference_rom_moderate ?? norms?.rom_moderate ?? 90;
 
         const chartData = {
             labels: cd.dates,
@@ -208,11 +390,13 @@ export default function AnalysisReport() {
                     label: 'Rep Count',
                     data: cd.rep_counts,
                     yAxisID: 'y1',
-                    backgroundColor: cd.rep_counts.map((r: number) =>
-                        r >= 18 ? 'rgba(34, 197, 94, 0.7)' :
-                            r >= 10 ? 'rgba(245, 158, 11, 0.7)' :
-                                'rgba(239, 68, 68, 0.6)'
-                    ),
+                    backgroundColor: cd.rep_counts.map((r: number) => {
+                        const exc = cd.reference_speed_excellent ?? norms?.speed_excellent_reps ?? 18;
+                        const good = norms?.speed_good_reps ?? 10;
+                        return r >= exc ? 'rgba(34, 197, 94, 0.7)' :
+                            r >= good ? 'rgba(245, 158, 11, 0.7)' :
+                                'rgba(239, 68, 68, 0.6)';
+                    }),
                     borderRadius: 4,
                     barPercentage: 0.5,
                     order: 3,
@@ -246,14 +430,14 @@ export default function AnalysisReport() {
                 },
                 annotation: {
                     annotations: {
-                        shoulderLevel: {
+                        romModerate: {
                             type: 'line' as const,
-                            yMin: 90, yMax: 90, yScaleID: 'y',
+                            yMin: romModerate, yMax: romModerate, yScaleID: 'y',
                             borderColor: 'rgba(245, 158, 11, 0.5)',
                             borderWidth: 1.5,
                             borderDash: [4, 4],
                             label: {
-                                content: '90° Shoulder Level',
+                                content: `${romModerate}° Your moderate target`,
                                 display: true,
                                 position: 'end' as const,
                                 backgroundColor: 'rgba(245, 158, 11, 0.8)',
@@ -262,14 +446,14 @@ export default function AnalysisReport() {
                                 padding: 4,
                             }
                         },
-                        fullAbduction: {
+                        romExcellent: {
                             type: 'line' as const,
-                            yMin: 150, yMax: 150, yScaleID: 'y',
+                            yMin: romExcellent, yMax: romExcellent, yScaleID: 'y',
                             borderColor: 'rgba(34, 197, 94, 0.5)',
                             borderWidth: 1.5,
                             borderDash: [4, 4],
                             label: {
-                                content: '150° Full Abduction',
+                                content: `${romExcellent}° Your excellent target`,
                                 display: true,
                                 position: 'end' as const,
                                 backgroundColor: 'rgba(34, 197, 94, 0.8)',
@@ -476,7 +660,9 @@ export default function AnalysisReport() {
                     <span>Back to Dashboard</span>
                 </button>
                 <h1 className="page-title">Analysis Report</h1>
-                <p className="page-subtitle">30-Day Longitudinal Progress Report — ML-powered trend analysis with AI clinical insights.</p>
+                <p className="page-subtitle">
+                    Profile-based session assessment and 30-day progress tracking — personalized to your age, activity, and health profile.
+                </p>
             </header>
 
             {/* Controls */}
@@ -553,7 +739,7 @@ export default function AnalysisReport() {
                     <div className="analysis-loading-content">
                         <Loader2 size={32} className="btn-loader" style={{ color: '#3b82f6' }} />
                         <h3>Computing your 30-day analysis...</h3>
-                        <p>Running linear regression, computing stability trends, and generating AI insights.</p>
+                        <p>Computing profile-based benchmarks, 30-day trends, and AI insights.</p>
                     </div>
                     <div className="skeleton-grid">
                         {[1, 2, 3, 4].map(i => (
@@ -574,7 +760,7 @@ export default function AnalysisReport() {
             )}
 
             {/* Error State */}
-            {error && !loading && (
+            {error && !loading && !sessionData && (
                 <div className="analysis-error">
                     <AlertTriangle size={28} />
                     <h3>Unable to Generate Report</h3>
@@ -587,8 +773,22 @@ export default function AnalysisReport() {
                 </div>
             )}
 
+            {progressNote && !loading && (
+                <div style={{
+                    padding: '14px 18px',
+                    marginBottom: '16px',
+                    background: '#fffbeb',
+                    border: '1px solid #fcd34d',
+                    borderRadius: '8px',
+                    fontSize: '0.95rem',
+                    color: '#92400e',
+                }}>
+                    {progressNote}
+                </div>
+            )}
+
             {/* Results */}
-            {data && !loading && (
+            {(data || sessionData) && !loading && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                     <div style={{ display: 'flex', justifyContent: 'flex-end', width: '100%' }}>
                         <button 
@@ -606,39 +806,42 @@ export default function AnalysisReport() {
                     </div>
 
                     <div ref={targetRef} className="analysis-results" style={{ padding: '24px', backgroundColor: '#fcfcfc', borderRadius: '12px' }}>
-                        <div style={{ marginBottom: '24px', borderBottom: '1px solid #e5e5e5', paddingBottom: '16px' }}>
-                            <h2 style={{ margin: 0, fontSize: '1.5rem', color: '#111' }}>Progress Report: {selectedTest.replace('Arm - ', '')}</h2>
-                            <div className="analysis-meta" style={{ marginTop: '12px' }}>
-                                <span>{data.meta.record_count} sessions</span>
-                                <span>·</span>
-                                <span>{data.meta.date_range.from} → {data.meta.date_range.to}</span>
-                                <span>·</span>
-                                <span style={{ textTransform: 'capitalize' }}>{data.meta.side} side</span>
-                            </div>
-                        </div>
+                        {renderNormativeSection()}
 
-                        {/* Metric Cards */}
-                        {renderMetricCards()}
+                        {data && (
+                            <>
+                                <div style={{ marginBottom: '24px', borderBottom: '1px solid #e5e5e5', paddingBottom: '16px', marginTop: assessmentSource ? '32px' : 0 }}>
+                                    <h2 style={{ margin: 0, fontSize: '1.5rem', color: '#111' }}>30-Day Progress: {selectedTest.replace('Arm - ', '')}</h2>
+                                    <div className="analysis-meta" style={{ marginTop: '12px' }}>
+                                        <span>{data.meta.record_count} sessions</span>
+                                        <span>·</span>
+                                        <span>{data.meta.date_range.from} → {data.meta.date_range.to}</span>
+                                        <span>·</span>
+                                        <span style={{ textTransform: 'capitalize' }}>{data.meta.side} side</span>
+                                    </div>
+                                </div>
 
-                        {/* Chart */}
-                        <div style={{ marginTop: '32px' }}>
-                            {renderChart()}
-                        </div>
+                                {renderMetricCards()}
 
-                        {/* AI Insights */}
-                        <div style={{ marginTop: '32px' }}>
-                            {renderAIInsights()}
-                        </div>
+                                <div style={{ marginTop: '32px' }}>
+                                    {renderChart()}
+                                </div>
+
+                                <div style={{ marginTop: '32px' }}>
+                                    {renderAIInsights()}
+                                </div>
+                            </>
+                        )}
                     </div>
                 </div>
             )}
 
             {/* Empty State */}
-            {!loading && !error && !data && !hasGenerated && (
+            {!loading && !error && !data && !sessionData && !hasGenerated && (
                 <div className="analysis-empty">
                     <FileBarChart size={48} strokeWidth={1} />
-                    <h3>30-Day Longitudinal Progress Report</h3>
-                    <p>Select your test side and click "Generate Report" to analyze your progress over the last 30 days.</p>
+                    <h3>Analysis Report</h3>
+                    <p>Select your test side and click Generate Report for a profile-based assessment and 30-day progress (requires 3+ sessions).</p>
                     <div className="analysis-features">
                         <div className="analysis-feature">
                             <TrendingUp size={18} />
@@ -651,6 +854,10 @@ export default function AnalysisReport() {
                         <div className="analysis-feature">
                             <Shield size={18} />
                             <span><strong>Stability Delta:</strong> Neuromuscular control improvement over time</span>
+                        </div>
+                        <div className="analysis-feature">
+                            <Brain size={18} />
+                            <span><strong>Profile Benchmark:</strong> Compare your latest session to targets for your age and activity</span>
                         </div>
                         <div className="analysis-feature">
                             <Brain size={18} />

@@ -6,7 +6,7 @@
 // -------- WIFI CONFIG --------
 const char* ssid = "kavs";
 const char* password = "everyonewantsit";
-const char* serverUrl = "http://172.19.140.78:7777/update";
+const char* serverUrl = "http://10.179.89.78:7777/update";
 
 // -------- MPU CONFIG --------
 const int MPU_addr = 0x68;
