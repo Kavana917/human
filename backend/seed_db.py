@@ -71,7 +71,7 @@ MOVEMENT_BANDS = {
     },
     "Arm - Extension": {
         "rom": (20, 48), "speed": (40, 90), "sd": (3.2, 0.9),
-        "ref_max": 52, "phases": [15, 25, 35, 45],
+        "ref_max": 52, "phases": [45],
     },
     "Arm - Internal Rotation": {
         "rom": (42, 78), "speed": (35, 85), "sd": (3.6, 1.2),

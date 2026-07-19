@@ -502,7 +502,6 @@ export default function MovementTestRecorder({ movementId }: MovementTestRecorde
             return <Line data={data} options={options} />;
         }
         else if (activeTab === 'stability') {
-            // Use roll data for abduction/adduction stability
             const data = {
                 labels: chartData.times?.map((t: number) => t.toFixed(1)) || [],
                 datasets: [
@@ -541,17 +540,19 @@ export default function MovementTestRecorder({ movementId }: MovementTestRecorde
             const fallback = movement?.stabilityFallbackTargets ?? [45, 90, 135, 150];
             const fromApi = (chartData as { targetAngles?: number[] }).targetAngles;
             const targetAngles =
-                fromApi && fromApi.length >= 2
+                fromApi && fromApi.length >= 1
                     ? fromApi
-                    : fallback.length === 2
-                        ? [fallback[0], chartData.romMaxAngle || fallback[1]]
-                        : [
-                            fallback[0],
-                            fallback[1],
-                            fallback[2],
-                            chartData.romMaxAngle || fallback[3],
-                        ];
-            const nPhases = targetAngles.length;
+                    : fallback.length === 1
+                        ? [chartData.romMaxAngle || fallback[0]]
+                        : fallback.length === 2
+                            ? [fallback[0], chartData.romMaxAngle || fallback[1]]
+                            : [
+                                fallback[0],
+                                fallback[1],
+                                fallback[2],
+                                chartData.romMaxAngle || fallback[3],
+                            ];
+            const nPhases = Math.max(1, targetAngles.length);
             
             targetAngles.forEach((angle, index) => {
                 if (angle && angle > 0) {
@@ -593,6 +594,7 @@ export default function MovementTestRecorder({ movementId }: MovementTestRecorde
                 }
             });
 
+            const magMax = Math.max(...targetAngles, 1);
             const options = {
                 responsive: true,
                 maintainAspectRatio: false,
@@ -611,7 +613,7 @@ export default function MovementTestRecorder({ movementId }: MovementTestRecorde
                     y: { 
                         title: { display: true, text: 'Arm Angle (degrees)' },
                         min: 0,
-                        max: Math.max(...targetAngles) + 20
+                        max: magMax + 20
                     },
                     x: { title: { display: true, text: 'Time (s)' }, ticks: { maxTicksLimit: 10 } }
                 }
@@ -625,6 +627,7 @@ export default function MovementTestRecorder({ movementId }: MovementTestRecorde
             const livePeak = chartData.speedCurrentRampPeak ?? chartData.speedPeakAngularVelocity ?? 0;
             const mid = movement?.mlMovementId;
             const moveVerb =
+                mid === 'extension' ? 'move arm back' :
                 mid === 'flexion' ? 'raise forward' :
                 mid === 'adduction' ? 'raise out to the side' :
                 'raise out to the side';
@@ -641,7 +644,7 @@ export default function MovementTestRecorder({ movementId }: MovementTestRecorde
                     chartData.speedUserMaxAngle ||
                     fallbackTargets[fallbackTargets.length - 1] ||
                     150;
-                const leaveBaselineThreshold = mid === 'adduction' ? 10 : 15;
+                const leaveBaselineThreshold = mid === 'adduction' || mid === 'extension' ? 10 : 15;
                 const enterBaselineThreshold = 5;
                 const activeColor = phase === 'ramp' ? '#22c55e' : phase === 'rest' ? '#3b82f6' : '#f59e0b';
 

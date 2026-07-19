@@ -63,6 +63,19 @@ MOVEMENT_CONFIGS = {
         'speed_ramp_start': 15.0,
         'ref_max': 110.0,
     },
+    # Extension: same roll channel; arm-down baseline; arm back makes raw more
+    # negative (~−145). Store abs(raw−baseline) so the chart always rises
+    # positive regardless of which way the raw axis moves.
+    # Stability: single hold at user's ROM max only.
+    'extension': {
+        'rom_sign': -1.0,
+        'positive_excursion': True,
+        'default_max_rom': 50.0,
+        'stability_n_phases': 1,
+        'stability_fallback': (50.0,),
+        'speed_ramp_start': 10.0,
+        'ref_max': 70.0,
+    },
 }
 
 active_movement = 'abduction'
@@ -78,8 +91,16 @@ def _rom_sign():
 
 
 def _relative_angle(raw_roll, baseline):
-    """Baseline-subtracted angle in the active movement's positive direction."""
-    return (raw_roll - baseline) * _rom_sign()
+    """Baseline-subtracted angle in the active movement's positive direction.
+
+    When positive_excursion is set (extension), return |raw − baseline| so the
+    trajectory always plots upward from 0° even if raw goes more negative.
+    """
+    cfg = _movement_cfg()
+    delta = (raw_roll - baseline) * float(cfg.get('rom_sign', 1.0))
+    if cfg.get('positive_excursion'):
+        return abs(raw_roll - baseline)
+    return delta
 
 
 def _stability_n_phases(movement=None) -> int:
@@ -89,6 +110,7 @@ def _stability_n_phases(movement=None) -> int:
 def _build_stability_targets(user_max):
     """Build hold targets for the active movement.
 
+    One-phase (extension): user's ROM max only.
     Two-phase (adduction/flexion): fixed mid, then user's ROM max from part 1.
     Abduction (4 phases): fractions of user max (legacy).
     """
@@ -96,6 +118,9 @@ def _build_stability_targets(user_max):
     default_max = float(cfg['default_max_rom'])
     max_angle = float(user_max) if user_max and user_max > 0 else default_max
     n = int(cfg.get('stability_n_phases', 4))
+
+    if n == 1:
+        return [round(max_angle, 1)]
 
     if n == 2:
         mid = float(cfg.get('stability_mid_deg', 45.0))
@@ -543,7 +568,7 @@ def _data_stability_payload(movement: str | None = None):
     }
 
 
-# --- Namespaced routes (preferred): /abduction|adduction|flexion/... ---
+# --- Namespaced routes (preferred): /abduction|adduction|flexion|extension/... ---
 
 @abduction_bp.route('/<movement>/reset', methods=['GET', 'POST'])
 def reset_session_ns(movement):

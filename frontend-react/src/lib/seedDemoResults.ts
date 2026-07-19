@@ -53,7 +53,7 @@ const MOVEMENT_BANDS: Record<
     sdStart: 3.2,
     sdEnd: 0.9,
     refMax: 52,
-    phaseTargets: [15, 25, 35, 45],
+    phaseTargets: [45],
   },
   'Arm - Internal Rotation': {
     romStart: 42,
