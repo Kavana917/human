@@ -15,7 +15,7 @@ import requests
 import urllib.parse
 
 from normative import get_normative_targets, extract_session_metrics
-from kinematics_model import predict_expected
+from kinematics_model import predict_expected, movement_for_test_type
 from comparison import build_ml_comparison
 
 analysis_bp = Blueprint('analysis', __name__)
@@ -588,7 +588,7 @@ def analysis_session():
     Also returns injury-aware progress targets for 30-day chart context (not session grading).
     """
     user_id = request.args.get('user_id')
-    test_type = request.args.get('test_type', 'Arm - Abduction & Adduction')
+    test_type = request.args.get('test_type', 'Arm - Abduction')
     side = request.args.get('side', 'right')
 
     if not user_id:
@@ -615,7 +615,7 @@ def analysis_session():
 
         # Injury-aware progress bands (used by charts / 30-day), not session grades
         progress_targets = get_normative_targets(profile)
-        ml_expected = predict_expected(profile, movement='abduction')
+        ml_expected = predict_expected(profile, movement=movement_for_test_type(test_type))
         ml_comparison = build_ml_comparison(metrics, ml_expected)
 
         created = row.get('created_at', '')
@@ -653,7 +653,7 @@ def analysis_30day():
     Returns ML metrics + AI insights for 30-day longitudinal progress report.
     """
     user_id = request.args.get('user_id')
-    test_type = request.args.get('test_type', 'Arm - Abduction & Adduction')
+    test_type = request.args.get('test_type', 'Arm - Abduction')
     side = request.args.get('side', 'right')
 
     print(f"\n[Analysis] === 30-Day Report Request ===")
@@ -779,7 +779,7 @@ def analysis_30day():
                     session_date = created
                 session_meta = {'session_date': session_date, 'created_at': created}
 
-        ml_expected = predict_expected(profile, movement='abduction')
+        ml_expected = predict_expected(profile, movement=movement_for_test_type(test_type))
         ml_comparison = build_ml_comparison(latest_metrics, ml_expected)
 
         # --- Chart data ---

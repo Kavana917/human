@@ -1,11 +1,11 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { Play, Square, Send, Loader2 } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import * as THREE from 'three';
-import abductionVideo from '../../assets/abduction.mp4';
 import TestPageLayout from './TestPageLayout';
 import SideToggle from '../../components/SideToggle';
+import { getMovementById } from './testConfigs';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -236,6 +236,9 @@ function RecordedBadge() {
 
 export default function AbductionAdduction() {
     const navigate = useNavigate();
+    const { testId } = useParams();
+    const movement = useMemo(() => getMovementById(testId), [testId]);
+
     const [activeTab, setActiveTab] = useState('rom');
     const [isRecording, setIsRecording] = useState(false);
     const [chartData, setChartData] = useState<ChartData | null>(null);
@@ -246,6 +249,7 @@ export default function AbductionAdduction() {
     const [side, setSide] = useState<'left' | 'right'>('right');
 
     const handleSubmit = async () => {
+        if (!movement) return;
         setIsSubmitting(true);
         try {
             // Get current user
@@ -273,11 +277,11 @@ export default function AbductionAdduction() {
 
             const { assessment: _a, assessmentColor: _c, ...romPayload } = romData;
 
-            // Store in Supabase
+            // Store in Supabase under the ML-aligned test_type for this movement
             const { error } = await supabase.from('test_results').insert([
                 {
                     user_id: user.id,
-                    test_type: 'Arm - Abduction & Adduction',
+                    test_type: movement.testType,
                     side: side,
                     rom_data: romPayload,
                     stability_data: stabilityData,
@@ -719,8 +723,28 @@ export default function AbductionAdduction() {
         return null;
     };
 
+    if (!movement) {
+        return (
+            <TestPageLayout title="Unknown Test">
+                <div style={{ padding: '24px', border: '1px solid #e5e5e5', borderRadius: '8px', background: '#fff' }}>
+                    <h3 style={{ marginTop: 0, marginBottom: '12px' }}>Test not found</h3>
+                    <p style={{ margin: 0, color: '#4b5563' }}>
+                        This test is not one of the six ML-aligned shoulder movements.
+                    </p>
+                    <button
+                        className="btn-primary"
+                        style={{ marginTop: '16px', width: 'auto', display: 'inline-flex' }}
+                        onClick={() => navigate('/tests')}
+                    >
+                        Go back to test selection
+                    </button>
+                </div>
+            </TestPageLayout>
+        );
+    }
+
     return (
-        <TestPageLayout title="Abduction & Adduction" videoSrc={abductionVideo}>
+        <TestPageLayout title={movement.title} videoSrc={movement.videoSrc}>
                     {/* Instructions */}
                     {activeTab === 'rom' && !isRecording && (
                         <div style={{ 
@@ -732,17 +756,17 @@ export default function AbductionAdduction() {
                             boxShadow: '0 4px 12px rgba(0,0,0,0.02)'
                         }}>
                             <h3 style={{ margin: '0 0 16px 0', fontSize: '1.1rem', fontWeight: 600, color: '#111' }}>
-                                📋 Instructions for ROM Test
+                                Instructions for {movement.title} ROM
                             </h3>
                             <ol style={{ margin: 0, paddingLeft: '20px', fontSize: '0.95rem', color: '#333', lineHeight: '1.6' }}>
-                                <li style={{ marginBottom: '8px' }}>Position your arm down at your side (starting position)</li>
-                                <li style={{ marginBottom: '8px' }}>Click "Start Recording" to calibrate baseline</li>
-                                <li style={{ marginBottom: '8px' }}>Slowly raise your arm upward as far as comfortable</li>
-                                <li style={{ marginBottom: '8px' }}>Hold briefly at maximum position, then lower arm</li>
-                                <li>Click "Stop Recording" when complete</li>
+                                {movement.romInstructions.map((step, i) => (
+                                    <li key={i} style={{ marginBottom: i < movement.romInstructions.length - 1 ? '8px' : 0 }}>
+                                        {step}
+                                    </li>
+                                ))}
                             </ol>
                             <div style={{ marginTop: '16px', padding: '12px 16px', background: '#f8f8f8', borderRadius: '6px', fontSize: '0.9rem', color: '#111', border: '1px solid #e5e5e5' }}>
-                                <strong>Expected Ranges:</strong> Shoulder Level (~90°) | Full Abduction (150-180°)
+                                <strong>Expected Ranges:</strong> {movement.expectedRanges}
                             </div>
                         </div>
                     )}

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 import { ArrowLeft, User, Activity, Edit2, Check, X, Loader2, FileBarChart } from 'lucide-react';
 import TestRecordCard from '../components/TestRecordCard';
+import { reseedAllDemoResults } from '../lib/seedDemoResults';
 
 export default function Dashboard() {
     const navigate = useNavigate();
@@ -16,6 +17,36 @@ export default function Dashboard() {
     
     // Test results
     const [testResults, setTestResults] = useState<any[]>([]);
+    const [reseeding, setReseeding] = useState(false);
+
+    const reloadResults = async (userId: string) => {
+        const resultsRes = await supabase
+            .from('test_results')
+            .select('*')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false });
+        setTestResults(resultsRes.data || []);
+    };
+
+    const handleForceReseed = async () => {
+        if (!confirm('Replace ALL previous test results with fresh demo data for the 6 ML-aligned shoulder tests?')) {
+            return;
+        }
+        setReseeding(true);
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) return;
+            localStorage.removeItem('stryde_demo_reseed_v3');
+            const seeded = await reseedAllDemoResults(true);
+            await reloadResults(user.id);
+            alert(seeded ? `Inserted ${seeded.inserted} demo sessions.` : 'Reseed skipped.');
+        } catch (e) {
+            console.error(e);
+            alert('Reseed failed: ' + (e as Error).message);
+        } finally {
+            setReseeding(false);
+        }
+    };
 
     useEffect(() => {
         let isMounted = true;
@@ -24,11 +55,23 @@ export default function Dashboard() {
             if (user) {
                 try {
                     const profileRes = await supabase.from('profiles').select('*').eq('id', user.id).single();
+
+                    // One-time wipe + insert of ML-aligned demo sessions (all 6 movements)
+                    try {
+                        const seeded = await reseedAllDemoResults(false);
+                        if (seeded) {
+                            console.log(`[Dashboard] Reseeded ${seeded.inserted} demo test results`);
+                        }
+                    } catch (seedErr) {
+                        console.error('Demo reseed failed', seedErr);
+                    }
+
                     const resultsRes = await supabase.from('test_results').select('*').eq('user_id', user.id).order('created_at', { ascending: false });
+                    const rows = resultsRes.data || [];
                     
                     if (isMounted) {
                         setProfile({ email: user.email, ...profileRes.data });
-                        setTestResults(resultsRes.data || []);
+                        setTestResults(rows);
                         setEditForm({
                             age: profileRes.data.age || '',
                             height_cm: profileRes.data.height_cm || '',
@@ -244,15 +287,26 @@ export default function Dashboard() {
                                 <Activity size={24} />
                                 <h2 style={{ fontSize: '1.5rem', fontWeight: 500, letterSpacing: '-0.02em', margin: 0 }}>Previous Test Results</h2>
                             </div>
-                            <button
-                                id="get-analysis-report-btn"
-                                onClick={() => navigate('/analysis-report')}
-                                className="btn-icon"
-                                style={{ margin: 0, background: '#111', color: '#fff', padding: '12px 24px', borderRadius: '6px', gap: '10px', fontWeight: 500, fontSize: '1rem', border: 'none', cursor: 'pointer' }}
-                            >
-                                <FileBarChart size={20} />
-                                <span>Get Analysis Report</span>
-                            </button>
+                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                <button
+                                    onClick={handleForceReseed}
+                                    className="btn-icon"
+                                    disabled={reseeding}
+                                    style={{ margin: 0, padding: '12px 16px', borderRadius: '6px', gap: '8px', fontWeight: 500, fontSize: '0.9rem', border: '1px solid #e5e5e5', cursor: 'pointer', background: '#fff' }}
+                                >
+                                    {reseeding ? <Loader2 size={16} className="btn-loader" /> : <Activity size={16} />}
+                                    <span>{reseeding ? 'Reseeding…' : 'Reseed demo data'}</span>
+                                </button>
+                                <button
+                                    id="get-analysis-report-btn"
+                                    onClick={() => navigate('/analysis-report')}
+                                    className="btn-icon"
+                                    style={{ margin: 0, background: '#111', color: '#fff', padding: '12px 24px', borderRadius: '6px', gap: '10px', fontWeight: 500, fontSize: '1rem', border: 'none', cursor: 'pointer' }}
+                                >
+                                    <FileBarChart size={20} />
+                                    <span>Get Analysis Report</span>
+                                </button>
+                            </div>
                         </div>
                         
                         <div className="results-list">

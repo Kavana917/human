@@ -8,8 +8,7 @@ import Onboarding from './pages/Onboarding';
 import Home from './pages/Home';
 import Dashboard from './pages/Dashboard';
 import TestSelection from './pages/TestSelection';
-import AbductionAdduction from './pages/tests/AbductionAdduction';
-import StandardTestPage from './pages/tests/StandardTestPage';
+import MovementTest from './pages/tests/AbductionAdduction';
 import AnalysisReport from './pages/AnalysisReport';
 
 export default function App() {
@@ -41,8 +40,11 @@ export default function App() {
         <Route path="/" element={session ? <Home /> : <Navigate to="/login" replace />} />
         <Route path="/dashboard" element={session ? <Dashboard /> : <Navigate to="/login" replace />} />
         <Route path="/tests" element={session ? <TestSelection /> : <Navigate to="/login" replace />} />
-        <Route path="/test/abduction-adduction" element={session ? <AbductionAdduction /> : <Navigate to="/login" replace />} />
-        <Route path="/test/:testId" element={session ? <StandardTestPage /> : <Navigate to="/login" replace />} />
+        {/* Legacy combined routes → split ML-aligned tests */}
+        <Route path="/test/abduction-adduction" element={<Navigate to="/test/abduction" replace />} />
+        <Route path="/test/flexion-extension" element={<Navigate to="/test/flexion" replace />} />
+        <Route path="/test/horizontal-abduction-adduction" element={<Navigate to="/tests" replace />} />
+        <Route path="/test/:testId" element={session ? <MovementTest /> : <Navigate to="/login" replace />} />
         <Route path="/login" element={!session ? <Login /> : <Navigate to="/" replace />} />
         <Route path="/signup" element={!session ? <Signup /> : <Navigate to="/" replace />} />
         <Route path="/onboarding" element={session ? <Onboarding /> : <Navigate to="/login" replace />} />

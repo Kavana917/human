@@ -14,6 +14,7 @@ import {
   Filler,
 } from 'chart.js';
 import annotationPlugin from 'chartjs-plugin-annotation';
+import { displayTestType } from '../pages/tests/testConfigs';
 
 ChartJS.register(
   CategoryScale,
@@ -121,7 +122,7 @@ export default function TestRecordCard({ record }: { record: any }) {
                 <div>
                     <h3 style={{ margin: '0 0 8px 0', fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <Activity size={20} color="#111" />
-                        {record.test_type === 'AbductionAdduction' ? 'Arm - Abduction & Adduction' : record.test_type}
+                        {displayTestType(record.test_type)}
                         {record.test_type?.toLowerCase().includes('arm') && (
                             <span style={{
                                 display: 'inline-flex',

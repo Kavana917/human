@@ -16,7 +16,36 @@ from typing import Any, Dict, Optional, Tuple
 import numpy as np
 
 MODELS_DIR = Path(__file__).resolve().parent / "ml_models"
-SUPPORTED_MOVEMENTS = ("abduction", "adduction")
+SUPPORTED_MOVEMENTS = (
+    "abduction",
+    "adduction",
+    "flexion",
+    "extension",
+    "internal_rotation",
+    "external_rotation",
+)
+
+# App test_results.test_type → ML movement_id
+TEST_TYPE_TO_MOVEMENT = {
+    "Arm - Abduction": "abduction",
+    "Arm - Adduction": "adduction",
+    "Arm - Flexion": "flexion",
+    "Arm - Extension": "extension",
+    "Arm - Internal Rotation": "internal_rotation",
+    "Arm - External Rotation": "external_rotation",
+    # Legacy combined labels (pre-split)
+    "Arm - Abduction & Adduction": "abduction",
+    "Arm - Flexion & Extension": "flexion",
+    "Arm - Horizontal Abduction & Adduction": "abduction",
+    "AbductionAdduction": "abduction",
+}
+
+
+def movement_for_test_type(test_type: Optional[str], default: str = "abduction") -> str:
+    """Map a stored test_type string to an ML movement_id."""
+    if not test_type:
+        return default
+    return TEST_TYPE_TO_MOVEMENT.get(test_type, default)
 
 SEX_ENCODING = {"M": 0, "F": 1}
 ACTIVITY_ORDER = ("sedentary", "moderate", "active")

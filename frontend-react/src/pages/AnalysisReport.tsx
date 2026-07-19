@@ -23,6 +23,7 @@ import {
 } from 'chart.js';
 import { Chart, Radar } from 'react-chartjs-2';
 import annotationPlugin from 'chartjs-plugin-annotation';
+import { TEST_TYPE_OPTIONS as TEST_OPTIONS } from './tests/testConfigs';
 
 ChartJS.register(
     CategoryScale,
@@ -228,14 +229,6 @@ function buildTakeaway(ml: MlComparison | null): string {
     }
     return parts.map((p, i) => (i === 0 ? p.charAt(0).toUpperCase() + p.slice(1) : p)).join('; ') + '.';
 }
-
-const TEST_OPTIONS = [
-    { value: 'Arm - Abduction & Adduction', label: 'Arm - Abduction & Adduction' },
-    { value: 'Arm - Flexion & Extension', label: 'Arm - Flexion & Extension' },
-    { value: 'Arm - Internal Rotation', label: 'Arm - Internal Rotation' },
-    { value: 'Arm - External Rotation', label: 'Arm - External Rotation' },
-    { value: 'Arm - Horizontal Abduction & Adduction', label: 'Arm - Horizontal Abduction & Adduction' },
-];
 
 export default function AnalysisReport() {
     const navigate = useNavigate();

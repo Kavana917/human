@@ -110,49 +110,49 @@ export default function Home() {
                     <div className="landing-test-card" style={{ minHeight: 'auto', padding: '32px' }}>
                         <div className="test-card-content">
                             <div className="step-num" style={{ marginBottom: '24px' }}>01</div>
-                            <h4>Upper Body</h4>
-                            <h3>Shoulder Abduction</h3>
-                            <p>Assess your shoulder mobility and stability in the frontal plane.</p>
+                            <h4>Shoulder</h4>
+                            <h3>Abduction</h3>
+                            <p>Raise the arm out to the side — coronal plane ROM, stability, and speed.</p>
                         </div>
                     </div>
                     <div className="landing-test-card" style={{ minHeight: 'auto', padding: '32px' }}>
                         <div className="test-card-content">
                             <div className="step-num" style={{ marginBottom: '24px' }}>02</div>
-                            <h4>Upper Body</h4>
-                            <h3>Elbow Flexion</h3>
-                            <p>Measure elbow joint range of motion and evaluate neuromuscular control.</p>
+                            <h4>Shoulder</h4>
+                            <h3>Adduction</h3>
+                            <p>Bring the arm back toward the body — separate from abduction for ML comparison.</p>
                         </div>
                     </div>
                     <div className="landing-test-card" style={{ minHeight: 'auto', padding: '32px' }}>
                         <div className="test-card-content">
                             <div className="step-num" style={{ marginBottom: '24px' }}>03</div>
-                            <h4>Lower Body</h4>
-                            <h3>Hip Extension</h3>
-                            <p>Evaluate hip flexibility and lower back compensatory movements.</p>
+                            <h4>Shoulder</h4>
+                            <h3>Flexion</h3>
+                            <p>Raise the arm forward and up — sagittal plane glenohumeral flexion.</p>
                         </div>
                     </div>
                     <div className="landing-test-card" style={{ minHeight: 'auto', padding: '32px' }}>
                         <div className="test-card-content">
                             <div className="step-num" style={{ marginBottom: '24px' }}>04</div>
-                            <h4>Lower Body</h4>
-                            <h3>Knee Flexion</h3>
-                            <p>Measure functional performance and range of the knee joint.</p>
+                            <h4>Shoulder</h4>
+                            <h3>Extension</h3>
+                            <p>Move the arm backward behind the body — sagittal plane extension.</p>
                         </div>
                     </div>
                     <div className="landing-test-card" style={{ minHeight: 'auto', padding: '32px' }}>
                         <div className="test-card-content">
                             <div className="step-num" style={{ marginBottom: '24px' }}>05</div>
-                            <h4>Spine</h4>
-                            <h3>Lateral Flexion</h3>
-                            <p>Analyze spine mobility and core control during lateral bending.</p>
+                            <h4>Shoulder</h4>
+                            <h3>Internal Rotation</h3>
+                            <p>Rotate the upper arm inward — axial yaw toward the body.</p>
                         </div>
                     </div>
                     <div className="landing-test-card" style={{ minHeight: 'auto', padding: '32px' }}>
                         <div className="test-card-content">
                             <div className="step-num" style={{ marginBottom: '24px' }}>06</div>
-                            <h4>Upper Body</h4>
-                            <h3>Shoulder Rotation</h3>
-                            <p>Assess internal and external rotation capabilities of the shoulder joint.</p>
+                            <h4>Shoulder</h4>
+                            <h3>External Rotation</h3>
+                            <p>Rotate the upper arm outward — axial yaw away from the body.</p>
                         </div>
                     </div>
                 </div>
