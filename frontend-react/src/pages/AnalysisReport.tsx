@@ -5,29 +5,33 @@ import generatePDF from 'react-to-pdf';
 import {
     ArrowLeft, TrendingUp, CalendarCheck, Shield, Clock,
     Brain, Lightbulb, AlertTriangle, Telescope, Loader2,
-    FileBarChart, BarChart3, Download, User, Target
+    FileBarChart, BarChart3, Download, Target, Info
 } from 'lucide-react';
 import {
     Chart as ChartJS,
     CategoryScale,
     LinearScale,
+    RadialLinearScale,
     PointElement,
     LineElement,
     BarElement,
+    RadarController,
     Title,
     Tooltip,
     Legend,
     Filler,
 } from 'chart.js';
-import { Chart } from 'react-chartjs-2';
+import { Chart, Radar } from 'react-chartjs-2';
 import annotationPlugin from 'chartjs-plugin-annotation';
 
 ChartJS.register(
     CategoryScale,
     LinearScale,
+    RadialLinearScale,
     PointElement,
     LineElement,
     BarElement,
+    RadarController,
     Title,
     Tooltip,
     Legend,
@@ -75,10 +79,14 @@ interface AnalysisResponse {
         reference_rom_excellent?: number;
         reference_rom_moderate?: number;
         reference_speed_excellent?: number;
+        reference_rom_expected?: number | null;
+        peak_angular_velocities?: (number | null)[];
     };
-    normative_targets?: NormativeTargets;
-    session_assessment?: SessionAssessment;
+    progress_targets?: ProgressTargets;
+    normative_targets?: ProgressTargets;
     session_meta?: { session_date: string; created_at: string };
+    ml_expected?: MlExpected | null;
+    ml_comparison?: MlComparison | null;
     ai_insights: {
         summary?: string;
         detail?: string;
@@ -99,12 +107,15 @@ interface AnalysisResponse {
     record_count?: number;
 }
 
-interface NormativeTargets {
+/** Injury-aware bands for 30-day progress charts / recovery target — not session grades. */
+interface ProgressTargets {
     rom_excellent: number;
     rom_moderate: number;
     rom_full_abduction: number;
-    speed_excellent_reps: number;
-    speed_good_reps: number;
+    speed_excellent_deg_s?: number;
+    speed_good_deg_s?: number;
+    speed_excellent_reps?: number;
+    speed_good_reps?: number;
     stability_excellent_sd: number;
     stability_moderate_sd: number;
     profile_summary: {
@@ -115,34 +126,57 @@ interface NormativeTargets {
     };
 }
 
-interface MetricAssessment {
-    value?: number;
-    reps?: number;
-    tier: string;
-    label: string;
-    color: string;
-    percent_of_ideal: number;
-    expected_excellent?: number;
-    expected_moderate?: number;
-    expected_excellent_sd?: number;
-    expected_moderate_sd?: number;
-    expected_excellent_reps?: number;
-    expected_good_reps?: number;
-    consistency?: { value: number; label: string; color: string };
+interface SessionMetrics {
+    peak_rom: number;
+    peak_angular_velocity?: number | null;
+    avg_sd?: number | null;
 }
 
-interface SessionAssessment {
-    normative_targets: NormativeTargets;
-    rom: MetricAssessment;
-    stability: MetricAssessment | null;
-    speed: MetricAssessment & { reps: number };
-    overall: { label: string; color: string };
+interface MlExpected {
+    movement: string;
+    rom: number;
+    speed: number;
+    stability: number;
+    inputs_used: {
+        age: number;
+        sex: string;
+        height_cm: number;
+        weight_kg: number;
+        bmi: number;
+        activity: string;
+        gender_note?: string;
+    };
+}
+
+interface MlMetricComparison {
+    measured: number;
+    expected: number;
+    deviation: number;
+    pct: number | null;
+    verdict: string;
+    label: string;
+    color: string;
+}
+
+interface MlComparison {
+    rom: MlMetricComparison | null;
+    stability: MlMetricComparison | null;
+    speed: {
+        informational: boolean;
+        measured_deg_s: number | null;
+        expected_deg_s: number;
+        note: string;
+    };
+    variation_summary: { label: string; color: string };
 }
 
 interface SessionResponse {
-    session_assessment: SessionAssessment;
+    session_metrics?: SessionMetrics;
     session_meta: { session_date: string; test_type: string; side: string };
-    normative_targets: NormativeTargets;
+    progress_targets?: ProgressTargets;
+    normative_targets?: ProgressTargets;
+    ml_expected?: MlExpected | null;
+    ml_comparison?: MlComparison | null;
     error?: string;
     message?: string;
 }
@@ -151,6 +185,48 @@ function tierColors(color: string) {
     if (color === 'green') return { bg: '#f0fdf4', border: '#86efac', text: '#166534' };
     if (color === 'orange') return { bg: '#fffbeb', border: '#fcd34d', text: '#92400e' };
     return { bg: '#fef2f2', border: '#fca5a5', text: '#991b1b' };
+}
+
+function clampScore(n: number) {
+    return Math.max(0, Math.min(100, Math.round(n)));
+}
+
+function mlMeaning(verdict: string): string {
+    switch (verdict) {
+        case 'meets':
+        case 'as_steady':
+            return 'You are performing in line with demographically matched healthy peers.';
+        case 'exceeds':
+            return 'You are above the demographic baseline — a strong result for your age and build.';
+        case 'slightly_below':
+        case 'slightly_less_steady':
+            return 'Slightly below demographic expectation — a meaningful but not severe gap.';
+        case 'well_below':
+        case 'less_steady':
+            return 'Notably below demographic expectation — worth tracking closely across sessions.';
+        default:
+            return 'Compared against a demographically matched healthy baseline.';
+    }
+}
+
+function buildTakeaway(ml: MlComparison | null): string {
+    const parts: string[] = [];
+    if (ml?.rom) {
+        parts.push(ml.rom.label.toLowerCase().replace('demographic expectation', 'demographic peers'));
+    }
+    if (ml?.stability) {
+        const v = ml.stability.verdict;
+        if (v === 'as_steady') parts.push('stability matches demographic expectation');
+        else if (v === 'slightly_less_steady') parts.push('stability is slightly below demographic expectation');
+        else if (v === 'less_steady') parts.push('stability is below demographic expectation');
+        else parts.push(ml.stability.label.toLowerCase());
+    }
+    if (parts.length === 0) {
+        return ml
+            ? 'Latest session compared to your demographically matched healthy baseline.'
+            : 'Demographic model unavailable — complete height and weight in your profile to unlock session comparison.';
+    }
+    return parts.map((p, i) => (i === 0 ? p.charAt(0).toUpperCase() + p.slice(1) : p)).join('; ') + '.';
 }
 
 const TEST_OPTIONS = [
@@ -215,14 +291,14 @@ export default function AnalysisReport() {
                 setHasGenerated(true);
                 return;
             }
-            if (sessionJson.session_assessment) {
+            if (sessionJson.session_metrics || sessionJson.ml_comparison || sessionJson.ml_expected) {
                 setSessionData(sessionJson);
             }
 
             if (progressJson.error === 'insufficient_data') {
                 setProgressNote(
                     progressJson.message ||
-                    `30-day progress needs at least 3 sessions (found ${progressJson.record_count || 0}). Normative assessment below uses your latest test.`
+                    `30-day progress needs at least 3 sessions (found ${progressJson.record_count || 0}). Session comparison below uses your latest test.`
                 );
             } else if (progressJson.error) {
                 setProgressNote(`Progress tracking unavailable: ${progressJson.error}`);
@@ -230,20 +306,25 @@ export default function AnalysisReport() {
                 setProgressNote('Could not load 30-day progress data.');
             } else {
                 setData(progressJson);
-                if (progressJson.session_assessment && !sessionJson.session_assessment) {
+                if (!sessionJson.session_metrics && !sessionJson.ml_comparison && progressJson.ml_comparison) {
                     setSessionData({
-                        session_assessment: progressJson.session_assessment,
                         session_meta: {
                             session_date: progressJson.session_meta?.session_date || '',
                             test_type: selectedTest,
                             side,
                         },
-                        normative_targets: progressJson.normative_targets!,
+                        progress_targets: progressJson.progress_targets ?? progressJson.normative_targets,
+                        normative_targets: progressJson.normative_targets,
+                        ml_expected: progressJson.ml_expected,
+                        ml_comparison: progressJson.ml_comparison,
                     });
                 }
             }
 
-            if (!sessionJson.session_assessment && !progressJson.session_assessment && progressJson.error !== 'insufficient_data') {
+            const hasSession =
+                !!(sessionJson.session_metrics || sessionJson.ml_comparison || sessionJson.ml_expected) ||
+                !!(progressJson.ml_comparison || progressJson.ml_expected);
+            if (!hasSession && progressJson.error !== 'insufficient_data') {
                 setError('Unable to generate report. Please try again.');
             }
 
@@ -256,100 +337,455 @@ export default function AnalysisReport() {
         }
     };
 
-    const assessmentSource = sessionData?.session_assessment ?? data?.session_assessment;
     const sessionMeta = sessionData?.session_meta ?? data?.session_meta;
-    const norms = sessionData?.normative_targets ?? data?.normative_targets ?? assessmentSource?.normative_targets;
+    const progressTargets =
+        sessionData?.progress_targets ??
+        sessionData?.normative_targets ??
+        data?.progress_targets ??
+        data?.normative_targets ??
+        null;
+    const mlExpected = sessionData?.ml_expected ?? data?.ml_expected ?? null;
+    const mlComparison = sessionData?.ml_comparison ?? data?.ml_comparison ?? null;
+    const hasInjury = !!progressTargets?.profile_summary?.has_injury;
 
-    const renderNormativeSection = () => {
-        if (!assessmentSource) return null;
-        const a = assessmentSource;
-        const profile = norms?.profile_summary;
-
-        const renderMetricCard = (
-            title: string,
-            actual: string,
-            expected: string,
-            metric: MetricAssessment,
-        ) => {
-            const c = tierColors(metric.color);
-            return (
-                <div className="analysis-metric-card" style={{ background: c.bg, borderColor: c.border }}>
-                    <div className="metric-label">{title}</div>
-                    <div className="metric-value" style={{ color: c.text }}>{metric.label}</div>
-                    <div className="metric-sub" style={{ marginTop: '8px' }}>
-                        <div><strong>You:</strong> {actual}</div>
-                        <div><strong>Profile target:</strong> {expected}</div>
-                        <div style={{ marginTop: '6px' }}>{metric.percent_of_ideal}% of ideal</div>
-                    </div>
-                </div>
-            );
-        };
+    const renderExecutiveSummary = () => {
+        if (!mlComparison && !mlExpected && !sessionData) return null;
+        const variation = mlComparison?.variation_summary;
+        const inputs = mlExpected?.inputs_used;
+        const takeaway = buildTakeaway(mlComparison);
+        const varC = variation ? tierColors(variation.color) : null;
+        const testLabel = selectedTest.replace('Arm - ', '');
+        const sideLabel = (sessionMeta && 'side' in sessionMeta ? sessionMeta.side : side) || side;
+        const dateLabel = sessionMeta && 'session_date' in sessionMeta
+            ? sessionMeta.session_date
+            : '';
 
         return (
-            <section style={{ marginBottom: '32px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-                    <Target size={22} />
-                    <h2 style={{ margin: 0, fontSize: '1.35rem' }}>Profile-Based Assessment</h2>
+            <section className="report-section report-summary">
+                <div className="report-section-header">
+                    <FileBarChart size={22} />
+                    <h2>Executive Summary</h2>
                 </div>
-                <p style={{ color: '#6b7280', fontSize: '0.95rem', margin: '0 0 16px 0' }}>
-                    Compared to expected performance for your profile
-                    {profile ? ` (age ${profile.age}, ${profile.gender}, ${profile.activity_level}${profile.has_injury ? ', injury reported' : ''})` : ''}.
-                    {sessionMeta?.session_date ? ` Latest session: ${sessionMeta.session_date}.` : ''}
-                </p>
-
-                <div style={{
-                    padding: '16px 20px',
-                    borderRadius: '8px',
-                    marginBottom: '20px',
-                    background: tierColors(a.overall.color).bg,
-                    border: `1px solid ${tierColors(a.overall.color).border}`,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                }}>
-                    <div>
-                        <div style={{ fontSize: '0.85rem', color: '#6b7280' }}>Overall session grade</div>
-                        <div style={{ fontSize: '1.5rem', fontWeight: 700, color: tierColors(a.overall.color).text }}>
-                            {a.overall.label}
+                <div className="report-summary-meta">
+                    <span>{testLabel}</span>
+                    <span>·</span>
+                    <span style={{ textTransform: 'capitalize' }}>{sideLabel} side</span>
+                    {dateLabel && (
+                        <>
+                            <span>·</span>
+                            <span>{dateLabel}</span>
+                        </>
+                    )}
+                    {inputs && (
+                        <>
+                            <span>·</span>
+                            <span>
+                                Model inputs: age {inputs.age}, {inputs.sex}, BMI {inputs.bmi}, {inputs.activity}
+                            </span>
+                        </>
+                    )}
+                    {hasInjury && (
+                        <>
+                            <span>·</span>
+                            <span>Injury reported — progress bands below are injury-aware</span>
+                        </>
+                    )}
+                </div>
+                <div className="report-summary-grades report-summary-grades--single">
+                    {variation && varC ? (
+                        <div className="report-grade-card" style={{ background: varC.bg, borderColor: varC.border }}>
+                            <div className="report-grade-label">
+                                <Brain size={16} /> Demographic comparison
+                            </div>
+                            <div className="report-grade-value" style={{ color: varC.text }}>{variation.label}</div>
                         </div>
-                    </div>
-                    <User size={28} style={{ color: tierColors(a.overall.color).text, opacity: 0.5 }} />
-                </div>
-
-                <div className="analysis-metrics-grid">
-                    {renderMetricCard(
-                        'Range of Motion',
-                        `${a.rom.value}°`,
-                        `≥${a.rom.expected_excellent}° excellent · ≥${a.rom.expected_moderate}° moderate`,
-                        a.rom,
-                    )}
-                    {a.stability && renderMetricCard(
-                        'Stability (avg hold SD)',
-                        `${a.stability.value}°`,
-                        `<${a.stability.expected_excellent_sd}° very stable · ≤${a.stability.expected_moderate_sd}° stable`,
-                        a.stability,
-                    )}
-                    {renderMetricCard(
-                        'Speed (30s reps)',
-                        `${a.speed.reps} reps`,
-                        `≥${a.speed.expected_excellent_reps} excellent · ≥${a.speed.expected_good_reps} good`,
-                        a.speed,
+                    ) : (
+                        <div className="report-grade-card" style={{ background: '#fffbeb', borderColor: '#fcd34d' }}>
+                            <div className="report-grade-label">
+                                <Brain size={16} /> Demographic comparison
+                            </div>
+                            <div className="report-grade-value" style={{ color: '#92400e' }}>
+                                Unavailable — add height &amp; weight to your profile
+                            </div>
+                        </div>
                     )}
                 </div>
-                {a.speed.consistency && (
-                    <p style={{ fontSize: '0.9rem', color: '#6b7280', marginTop: '12px' }}>
-                        Rep consistency: {a.speed.consistency.value}s — {a.speed.consistency.label}
-                    </p>
-                )}
+                <div className="report-takeaway">
+                    <Info size={16} />
+                    <p>{takeaway}</p>
+                </div>
             </section>
         );
     };
 
-    const renderChart = () => {
+    const renderMlBenchmarks = () => {
+        if (!mlComparison || !mlExpected) return null;
+        const genderNote = mlExpected.inputs_used?.gender_note;
+
+        type Row = {
+            key: string;
+            title: string;
+            measured: string;
+            label: string;
+            detail: string;
+            color: string;
+            meaning: string;
+            informational?: boolean;
+        };
+
+        const rows: Row[] = [];
+        if (mlComparison.rom) {
+            const r = mlComparison.rom;
+            rows.push({
+                key: 'rom',
+                title: 'Range of Motion',
+                measured: `${r.measured}°`,
+                label: r.label,
+                detail: `Expected ${r.expected}° · Δ ${r.deviation > 0 ? '+' : ''}${r.deviation}°${r.pct != null ? ` (${r.pct > 0 ? '+' : ''}${r.pct}%)` : ''}`,
+                color: r.color,
+                meaning: mlMeaning(r.verdict),
+            });
+        }
+        if (mlComparison.stability) {
+            const s = mlComparison.stability;
+            rows.push({
+                key: 'stability',
+                title: 'Stability (avg hold SD)',
+                measured: `${s.measured}°`,
+                label: s.label,
+                detail: `Expected ${s.expected}° · Δ ${s.deviation > 0 ? '+' : ''}${s.deviation}°`,
+                color: s.color,
+                meaning: mlMeaning(s.verdict),
+            });
+        }
+        rows.push({
+            key: 'speed',
+            title: 'Peak Angular Velocity',
+            measured: mlComparison.speed.measured_deg_s != null ? `${mlComparison.speed.measured_deg_s} °/s` : '—',
+            label: 'Informational',
+            detail: `Model expected ${mlComparison.speed.expected_deg_s}°/s (max-effort simulator protocol)`,
+            color: 'orange',
+            meaning: mlComparison.speed.note,
+            informational: true,
+        });
+
+        return (
+            <section className="report-section">
+                <div className="report-section-header">
+                    <Brain size={22} />
+                    <h2>Demographic Comparison</h2>
+                </div>
+                <p className="report-section-desc">
+                    Primary session analysis: measured values vs a demographically matched healthy baseline
+                    from the k-NN kinematics model
+                    {` (age ${mlExpected.inputs_used.age}, ${mlExpected.inputs_used.sex}, BMI ${mlExpected.inputs_used.bmi}, ${mlExpected.inputs_used.activity})`}.
+                </p>
+                {genderNote && (
+                    <div className="report-note report-note-warn">
+                        Gender &apos;other&apos; — demographic baseline computed using male reference.
+                    </div>
+                )}
+
+                <div className="report-benchmark-rows">
+                    {rows.map((row) => {
+                        const c = tierColors(row.color);
+                        return (
+                            <div key={row.key} className="report-benchmark-row report-benchmark-row--ml">
+                                <div className="report-benchmark-measured">
+                                    <div className="metric-label">{row.title}</div>
+                                    <div className="report-measured-value">{row.measured}</div>
+                                    <div className="metric-sub">Your latest session</div>
+                                </div>
+                                <div className="report-benchmark-lens" style={{ background: c.bg, borderColor: c.border }}>
+                                    <div className="report-lens-title">
+                                        <Brain size={14} /> vs Demographic expected
+                                        {row.informational && <span className="report-info-chip">Info</span>}
+                                    </div>
+                                    <div className="report-lens-badge" style={{ color: c.text }}>{row.label}</div>
+                                    <div className="report-lens-detail">{row.detail}</div>
+                                    <p className="report-meaning">{row.meaning}</p>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            </section>
+        );
+    };
+
+    const renderBenchmarkBars = () => {
+        if (!mlComparison || !mlExpected) return null;
+
+        type BarRow = {
+            label: string;
+            unit: string;
+            measuredRaw: number;
+            expectedRaw: number;
+            lowerBetter: boolean;
+        };
+
+        const rows: BarRow[] = [];
+        if (mlComparison.rom) {
+            rows.push({
+                label: 'ROM',
+                unit: '°',
+                measuredRaw: mlComparison.rom.measured,
+                expectedRaw: mlComparison.rom.expected,
+                lowerBetter: false,
+            });
+        }
+        if (mlComparison.stability) {
+            rows.push({
+                label: 'Stability',
+                unit: '° SD',
+                measuredRaw: mlComparison.stability.measured,
+                expectedRaw: mlComparison.stability.expected,
+                lowerBetter: true,
+            });
+        }
+        if (mlComparison.speed.measured_deg_s != null) {
+            rows.push({
+                label: 'Speed',
+                unit: '°/s',
+                measuredRaw: mlComparison.speed.measured_deg_s,
+                expectedRaw: mlComparison.speed.expected_deg_s,
+                lowerBetter: false,
+            });
+        }
+
+        if (rows.length === 0) return null;
+
+        const toPct = (value: number, expected: number, lowerBetter: boolean) => {
+            if (!expected || expected <= 0) return 0;
+            if (lowerBetter) {
+                const v = Math.max(value, 0.01);
+                return Math.round(Math.min(150, (expected / v) * 100));
+            }
+            return Math.round(Math.min(150, (value / expected) * 100));
+        };
+
+        const measuredPct = rows.map((r) => toPct(r.measuredRaw, r.expectedRaw, r.lowerBetter));
+        const expectedPct = rows.map(() => 100);
+
+        const chartData = {
+            labels: rows.map((r) => r.label),
+            datasets: [
+                {
+                    label: 'Measured',
+                    data: measuredPct,
+                    backgroundColor: 'rgba(17, 17, 17, 0.85)',
+                    borderRadius: 4,
+                    barPercentage: 0.75,
+                    categoryPercentage: 0.65,
+                },
+                {
+                    label: 'Demographic expected',
+                    data: expectedPct,
+                    backgroundColor: 'rgba(59, 130, 246, 0.55)',
+                    borderRadius: 4,
+                    barPercentage: 0.75,
+                    categoryPercentage: 0.65,
+                },
+            ],
+        };
+
+        const options = {
+            indexAxis: 'y' as const,
+            responsive: true,
+            maintainAspectRatio: false,
+            layout: { padding: { top: 4, right: 8, bottom: 0, left: 0 } },
+            plugins: {
+                title: {
+                    display: true,
+                    text: 'Measured vs Demographic Expected (%)',
+                    font: { size: 14, weight: 600 as const },
+                    color: '#111',
+                    padding: { bottom: 10 },
+                },
+                legend: {
+                    position: 'top' as const,
+                    align: 'center' as const,
+                    labels: { usePointStyle: true, padding: 12, font: { size: 11 }, boxWidth: 8 },
+                },
+                tooltip: {
+                    backgroundColor: 'rgba(0,0,0,0.85)',
+                    padding: 10,
+                    cornerRadius: 6,
+                    callbacks: {
+                        label: (ctx: { datasetIndex: number; dataIndex: number; parsed: { x: number } }) => {
+                            const row = rows[ctx.dataIndex];
+                            const series = ctx.datasetIndex === 0 ? 'Measured' : 'Demographic expected';
+                            const raw = ctx.datasetIndex === 0 ? row.measuredRaw : row.expectedRaw;
+                            return `${series}: ${ctx.parsed.x}% (${raw}${row.unit})`;
+                        },
+                    },
+                },
+            },
+            scales: {
+                x: {
+                    min: 0,
+                    max: 150,
+                    grid: { color: 'rgba(0,0,0,0.04)' },
+                    ticks: {
+                        font: { size: 11 },
+                        callback: (v: string | number) => `${v}%`,
+                    },
+                    title: {
+                        display: true,
+                        text: '% of demographic expected (100% = model baseline)',
+                        font: { size: 11 },
+                        color: '#9ca3af',
+                    },
+                },
+                y: {
+                    grid: { display: false },
+                    ticks: { font: { size: 12, weight: 500 as const } },
+                },
+            },
+        };
+
+        return (
+            <div className="report-chart-panel report-chart-panel--equal">
+                <div className="report-chart-canvas">
+                    <Chart type="bar" data={chartData} options={options} />
+                </div>
+                <p className="report-chart-caption">
+                    Normalized to the ML demographic baseline. Stability inverted (lower SD = higher %). Speed is informational.
+                </p>
+            </div>
+        );
+    };
+
+    const renderRadarChart = () => {
+        if (!mlComparison || !mlExpected) return null;
+        const labels: string[] = [];
+        const scores: number[] = [];
+
+        if (mlComparison.rom) {
+            labels.push('ROM');
+            scores.push(clampScore((mlComparison.rom.measured / mlComparison.rom.expected) * 100));
+        }
+        if (mlComparison.stability) {
+            labels.push('Stability');
+            const sd = Math.max(mlComparison.stability.measured, 0.01);
+            scores.push(clampScore((mlComparison.stability.expected / sd) * 100));
+        }
+        if (mlComparison.speed.measured_deg_s != null && mlComparison.speed.expected_deg_s > 0) {
+            labels.push('Speed');
+            scores.push(clampScore((mlComparison.speed.measured_deg_s / mlComparison.speed.expected_deg_s) * 100));
+        }
+        if (data?.consistency_index) {
+            labels.push('Consistency');
+            scores.push(clampScore(data.consistency_index.score));
+        }
+
+        if (labels.length < 3) return null;
+
+        const chartData = {
+            labels,
+            datasets: [
+                {
+                    label: 'Score (0–100)',
+                    data: scores,
+                    backgroundColor: 'rgba(17, 17, 17, 0.08)',
+                    borderColor: '#111',
+                    borderWidth: 2,
+                    pointBackgroundColor: '#111',
+                    pointBorderColor: '#fff',
+                    pointHoverBackgroundColor: '#3b82f6',
+                    pointRadius: 4,
+                },
+            ],
+        };
+
+        const options = {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                title: {
+                    display: true,
+                    text: 'Score Breakdown',
+                    font: { size: 14, weight: 600 as const },
+                    color: '#111',
+                    padding: { bottom: 8 },
+                },
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: (ctx: { raw: unknown }) => `Score: ${ctx.raw}/100`,
+                    },
+                },
+            },
+            scales: {
+                r: {
+                    min: 0,
+                    max: 100,
+                    ticks: { stepSize: 25, font: { size: 10 }, backdropColor: 'transparent' },
+                    grid: { color: 'rgba(0,0,0,0.08)' },
+                    pointLabels: { font: { size: 12, weight: 500 as const }, color: '#374151' },
+                },
+            },
+        };
+
+        return (
+            <section className="report-section report-section--charts">
+                <div className="report-section-header">
+                    <BarChart3 size={22} />
+                    <h2>Performance Overview</h2>
+                </div>
+                <p className="report-section-desc">
+                    Left: measured vs demographic expected (same % scale).
+                    Right: normalized 0–100 score vs the ML baseline
+                    {data?.consistency_index ? ' plus testing consistency' : ''}.
+                    Stability is inverted so higher always means better control.
+                </p>
+                <div className="report-charts-split">
+                    {renderBenchmarkBars()}
+                    <div className="report-chart-panel report-chart-panel--equal">
+                        <div className="report-chart-canvas">
+                            <Radar data={chartData} options={options} />
+                        </div>
+                        <p className="report-chart-caption">
+                            Score axes: {labels.join(' · ')}. Outer ring = 100 (demographic expected).
+                        </p>
+                    </div>
+                </div>
+            </section>
+        );
+    };
+
+    const renderChartsFallback = () => {
+        if (!mlComparison || !mlExpected) return null;
+        let axisCount = 0;
+        if (mlComparison.rom) axisCount++;
+        if (mlComparison.stability) axisCount++;
+        if (mlComparison.speed.measured_deg_s != null) axisCount++;
+        if (data?.consistency_index) axisCount++;
+        if (axisCount >= 3) return null;
+
+        return (
+            <section className="report-section report-section--charts">
+                <div className="report-section-header">
+                    <BarChart3 size={22} />
+                    <h2>Benchmark Comparison</h2>
+                </div>
+                <p className="report-section-desc">
+                    Measured values vs demographically expected baseline (normalized %).
+                </p>
+                <div className="report-charts-single">
+                    {renderBenchmarkBars()}
+                </div>
+            </section>
+        );
+    };
+
+    const renderProgressChart = () => {
         if (!data?.chart_data) return null;
         const cd = data.chart_data;
-        const romExcellent = cd.reference_rom_excellent ?? norms?.rom_excellent ?? 150;
-        const romModerate = cd.reference_rom_moderate ?? norms?.rom_moderate ?? 90;
+        const romExcellent = cd.reference_rom_excellent ?? progressTargets?.rom_excellent ?? 150;
+        const romModerate = cd.reference_rom_moderate ?? progressTargets?.rom_moderate ?? 90;
+        const romExpected = cd.reference_rom_expected ?? mlExpected?.rom ?? null;
+        const progressLabel = hasInjury ? 'Injury-aware' : 'Progress';
 
         const chartData = {
             labels: cd.dates,
@@ -387,14 +823,15 @@ export default function AnalysisReport() {
                 },
                 {
                     type: 'bar' as const,
-                    label: 'Rep Count',
-                    data: cd.rep_counts,
+                    label: 'Peak °/s',
+                    data: (cd.peak_angular_velocities ?? cd.rep_counts).map((v) => v ?? 0),
                     yAxisID: 'y1',
-                    backgroundColor: cd.rep_counts.map((r: number) => {
-                        const exc = cd.reference_speed_excellent ?? norms?.speed_excellent_reps ?? 18;
-                        const good = norms?.speed_good_reps ?? 10;
-                        return r >= exc ? 'rgba(34, 197, 94, 0.7)' :
-                            r >= good ? 'rgba(245, 158, 11, 0.7)' :
+                    backgroundColor: (cd.peak_angular_velocities ?? cd.rep_counts).map((r) => {
+                        const val = r ?? 0;
+                        const exc = cd.reference_speed_excellent ?? progressTargets?.speed_excellent_deg_s ?? progressTargets?.speed_excellent_reps ?? 110;
+                        const good = progressTargets?.speed_good_deg_s ?? progressTargets?.speed_good_reps ?? 75;
+                        return val >= exc ? 'rgba(34, 197, 94, 0.7)' :
+                            val >= good ? 'rgba(245, 158, 11, 0.7)' :
                                 'rgba(239, 68, 68, 0.6)';
                     }),
                     borderRadius: 4,
@@ -411,7 +848,7 @@ export default function AnalysisReport() {
             plugins: {
                 title: {
                     display: true,
-                    text: '30-Day ROM Trend & Repetition Performance',
+                    text: '30-Day ROM Trend & Peak Angular Velocity',
                     font: { size: 14, weight: 600 as const },
                     color: '#111',
                     padding: { bottom: 16 }
@@ -437,7 +874,7 @@ export default function AnalysisReport() {
                             borderWidth: 1.5,
                             borderDash: [4, 4],
                             label: {
-                                content: `${romModerate}° Your moderate target`,
+                                content: `${romModerate}° ${progressLabel} moderate`,
                                 display: true,
                                 position: 'end' as const,
                                 backgroundColor: 'rgba(245, 158, 11, 0.8)',
@@ -453,7 +890,7 @@ export default function AnalysisReport() {
                             borderWidth: 1.5,
                             borderDash: [4, 4],
                             label: {
-                                content: `${romExcellent}° Your excellent target`,
+                                content: `${romExcellent}° ${progressLabel} excellent`,
                                 display: true,
                                 position: 'end' as const,
                                 backgroundColor: 'rgba(34, 197, 94, 0.8)',
@@ -461,7 +898,25 @@ export default function AnalysisReport() {
                                 font: { size: 10 },
                                 padding: 4,
                             }
-                        }
+                        },
+                        ...(romExpected != null ? {
+                            romExpected: {
+                                type: 'line' as const,
+                                yMin: romExpected, yMax: romExpected, yScaleID: 'y',
+                                borderColor: 'rgba(37, 99, 235, 0.65)',
+                                borderWidth: 1.5,
+                                borderDash: [2, 3],
+                                label: {
+                                    content: `${romExpected}° Demographic expected`,
+                                    display: true,
+                                    position: 'start' as const,
+                                    backgroundColor: 'rgba(37, 99, 235, 0.85)',
+                                    color: '#fff',
+                                    font: { size: 10 },
+                                    padding: 4,
+                                }
+                            }
+                        } : {})
                     }
                 }
             },
@@ -478,10 +933,10 @@ export default function AnalysisReport() {
                 y1: {
                     type: 'linear' as const,
                     position: 'right' as const,
-                    title: { display: true, text: 'Rep Count', font: { size: 12 }, color: '#22c55e' },
+                    title: { display: true, text: 'Peak °/s', font: { size: 12 }, color: '#22c55e' },
                     min: 0,
                     grid: { drawOnChartArea: false },
-                    ticks: { stepSize: 2, color: '#22c55e' },
+                    ticks: { color: '#22c55e' },
                 },
                 x: {
                     grid: { color: 'rgba(0,0,0,0.04)' },
@@ -491,8 +946,105 @@ export default function AnalysisReport() {
         };
 
         return (
-            <div style={{ height: '380px', padding: '24px', background: '#fff', border: '1px solid #e5e5e5', borderRadius: '8px' }}>
+            <div className="report-chart-panel" style={{ height: 380 }}>
                 <Chart type="bar" data={chartData} options={options} />
+            </div>
+        );
+    };
+
+    const renderStabilityTrend = () => {
+        if (!data?.chart_data?.avg_stability_sds) return null;
+        const cd = data.chart_data;
+        const values = cd.avg_stability_sds;
+        const hasData = values.some((v) => v != null);
+        if (!hasData) return null;
+
+        const excellentSd = progressTargets?.stability_excellent_sd ?? 2;
+        const moderateSd = progressTargets?.stability_moderate_sd ?? 4;
+
+        const chartData = {
+            labels: cd.dates,
+            datasets: [
+                {
+                    label: 'Avg hold SD (°)',
+                    data: values.map((v) => v ?? NaN),
+                    borderColor: '#0f766e',
+                    backgroundColor: 'rgba(15, 118, 110, 0.1)',
+                    fill: true,
+                    tension: 0.35,
+                    pointRadius: 4,
+                    pointBackgroundColor: '#0f766e',
+                    spanGaps: true,
+                    borderWidth: 2,
+                },
+            ],
+        };
+
+        const options = {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                title: {
+                    display: true,
+                    text: 'Stability Trend (lower is better)',
+                    font: { size: 14, weight: 600 as const },
+                    color: '#111',
+                    padding: { bottom: 12 },
+                },
+                legend: { display: false },
+                annotation: {
+                    annotations: {
+                        excellent: {
+                            type: 'line' as const,
+                            yMin: excellentSd, yMax: excellentSd,
+                            borderColor: 'rgba(34, 197, 94, 0.5)',
+                            borderWidth: 1.5,
+                            borderDash: [4, 4],
+                            label: {
+                                content: `${excellentSd}° excellent`,
+                                display: true,
+                                position: 'end' as const,
+                                backgroundColor: 'rgba(34, 197, 94, 0.8)',
+                                color: '#fff',
+                                font: { size: 10 },
+                                padding: 4,
+                            },
+                        },
+                        moderate: {
+                            type: 'line' as const,
+                            yMin: moderateSd, yMax: moderateSd,
+                            borderColor: 'rgba(245, 158, 11, 0.5)',
+                            borderWidth: 1.5,
+                            borderDash: [4, 4],
+                            label: {
+                                content: `${moderateSd}° moderate`,
+                                display: true,
+                                position: 'end' as const,
+                                backgroundColor: 'rgba(245, 158, 11, 0.8)',
+                                color: '#fff',
+                                font: { size: 10 },
+                                padding: 4,
+                            },
+                        },
+                    },
+                },
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    title: { display: true, text: 'SD (degrees)', font: { size: 12 }, color: '#0f766e' },
+                    grid: { color: 'rgba(0,0,0,0.04)' },
+                },
+                x: {
+                    grid: { color: 'rgba(0,0,0,0.04)' },
+                    ticks: { font: { size: 11 } },
+                },
+            },
+        };
+
+        return (
+            <div className="report-chart-panel" style={{ height: 280, marginTop: 16 }}>
+                <Chart type="line" data={chartData} options={options} />
             </div>
         );
     };
@@ -507,6 +1059,7 @@ export default function AnalysisReport() {
                 label: 'Recovery Velocity',
                 value: rs ? `${rs.slope_per_day > 0 ? '+' : ''}${rs.slope_per_day.toFixed(2)}°/day` : 'N/A',
                 sub: rs ? `R² = ${rs.r_squared.toFixed(3)}` : '',
+                caption: 'How fast your peak ROM is changing per day from the regression fit.',
                 color: rs?.direction === 'improving' ? '#16a34a' : rs?.direction === 'declining' ? '#dc2626' : '#d97706',
                 bg: rs?.direction === 'improving' ? '#f0fdf4' : rs?.direction === 'declining' ? '#fef2f2' : '#fffbeb',
                 border: rs?.direction === 'improving' ? '#86efac' : rs?.direction === 'declining' ? '#fca5a5' : '#fcd34d',
@@ -516,6 +1069,7 @@ export default function AnalysisReport() {
                 label: 'Consistency Index',
                 value: ci ? `${ci.score.toFixed(0)}%` : 'N/A',
                 sub: ci ? `${ci.days_tested}/${ci.days_in_range} days · ${ci.label}` : '',
+                caption: 'Share of days in the window with a completed test — habit strength.',
                 color: ci && ci.score >= 60 ? '#16a34a' : ci && ci.score >= 40 ? '#d97706' : '#dc2626',
                 bg: ci && ci.score >= 60 ? '#f0fdf4' : ci && ci.score >= 40 ? '#fffbeb' : '#fef2f2',
                 border: ci && ci.score >= 60 ? '#86efac' : ci && ci.score >= 40 ? '#fcd34d' : '#fca5a5',
@@ -525,6 +1079,7 @@ export default function AnalysisReport() {
                 label: 'Stability Delta',
                 value: sd ? `${sd.percent_improvement > 0 ? '↓' : '↑'} ${Math.abs(sd.percent_improvement).toFixed(1)}%` : 'N/A',
                 sub: sd ? `${sd.initial_avg_sd.toFixed(1)}° → ${sd.current_avg_sd.toFixed(1)}°` : 'Insufficient data',
+                caption: 'Change in hold sway early vs late in the window (↓ SD = better control).',
                 color: sd?.trend === 'improving' ? '#16a34a' : sd?.trend === 'declining' ? '#dc2626' : '#6b7280',
                 bg: sd?.trend === 'improving' ? '#f0fdf4' : sd?.trend === 'declining' ? '#fef2f2' : '#f9fafb',
                 border: sd?.trend === 'improving' ? '#86efac' : sd?.trend === 'declining' ? '#fca5a5' : '#e5e5e5',
@@ -535,6 +1090,7 @@ export default function AnalysisReport() {
                 value: pr?.already_reached ? 'Reached!' :
                     pr?.adjusted_days != null ? `~${Math.round(pr.adjusted_days)} days` : 'N/A',
                 sub: pr?.confidence ? `Confidence: ${pr.confidence}` : '',
+                caption: 'Estimated days to your ROM target at the current recovery slope.',
                 color: pr?.already_reached ? '#16a34a' : pr?.confidence === 'high' ? '#16a34a' : pr?.confidence === 'moderate' ? '#d97706' : '#6b7280',
                 bg: pr?.already_reached ? '#f0fdf4' : '#f9fafb',
                 border: pr?.already_reached ? '#86efac' : '#e5e5e5',
@@ -549,6 +1105,7 @@ export default function AnalysisReport() {
                         <div className="metric-label">{card.label}</div>
                         <div className="metric-value" style={{ color: card.color }}>{card.value}</div>
                         <div className="metric-sub">{card.sub}</div>
+                        <p className="report-kpi-caption">{card.caption}</p>
                     </div>
                 ))}
             </div>
@@ -561,99 +1118,105 @@ export default function AnalysisReport() {
 
         if (ai.error && !ai.summary) {
             return (
-                <div className="analysis-ai-panel">
-                    <div className="ai-panel-header">
-                        <Brain size={22} />
-                        <h3>AI Insights</h3>
-                        <span className="ai-badge">Powered by Groq</span>
+                <section className="report-section">
+                    <div className="analysis-ai-panel">
+                        <div className="ai-panel-header">
+                            <Brain size={22} />
+                            <h3>AI Insights</h3>
+                            <span className="ai-badge">Powered by Groq</span>
+                        </div>
+                        <div className="ai-error-box">
+                            <AlertTriangle size={18} />
+                            <span>AI analysis unavailable: {ai.error}</span>
+                        </div>
                     </div>
-                    <div className="ai-error-box">
-                        <AlertTriangle size={18} />
-                        <span>AI analysis unavailable: {ai.error}</span>
-                    </div>
-                </div>
+                </section>
             );
         }
 
         return (
-            <div className="analysis-ai-panel">
-                <div className="ai-panel-header">
+            <section className="report-section">
+                <div className="report-section-header">
                     <Brain size={22} />
-                    <h3>AI-Powered Insights</h3>
-                    <span className="ai-badge">Powered by Groq</span>
+                    <h2>AI Insights</h2>
+                    <span className="report-section-badge">Powered by Groq</span>
                 </div>
 
-                {ai.summary && (
-                    <div className="ai-section">
-                        <div className="ai-section-header">
-                            <FileBarChart size={18} />
-                            <h4>Summary</h4>
+                <div className="analysis-ai-panel report-ai-refined">
+                    {ai.summary && (
+                        <div className="ai-section ai-lead-summary">
+                            <div className="ai-section-header">
+                                <FileBarChart size={18} />
+                                <h4>Summary</h4>
+                            </div>
+                            <p>{ai.summary}</p>
                         </div>
-                        <p>{ai.summary}</p>
-                    </div>
-                )}
+                    )}
 
-                {ai.detail && (
-                    <div className="ai-section">
-                        <div className="ai-section-header">
-                            <BarChart3 size={18} />
-                            <h4>Detailed Analysis</h4>
+                    {ai.detail && (
+                        <div className="ai-section">
+                            <div className="ai-section-header">
+                                <BarChart3 size={18} />
+                                <h4>Detailed Analysis</h4>
+                            </div>
+                            <p>{ai.detail}</p>
                         </div>
-                        <p>{ai.detail}</p>
-                    </div>
-                )}
+                    )}
 
-                {ai.recommendations && ai.recommendations.length > 0 && (
-                    <div className="ai-section">
-                        <div className="ai-section-header">
-                            <Lightbulb size={18} />
-                            <h4>Recommendations</h4>
+                    {ai.recommendations && ai.recommendations.length > 0 && (
+                        <div className="ai-section">
+                            <div className="ai-section-header">
+                                <Lightbulb size={18} />
+                                <h4>Recommendations</h4>
+                            </div>
+                            <ul className="ai-checklist">
+                                {ai.recommendations.map((rec, i) => (
+                                    <li key={i}>{rec}</li>
+                                ))}
+                            </ul>
                         </div>
-                        <ol className="ai-recommendations">
-                            {ai.recommendations.map((rec, i) => (
-                                <li key={i}>{rec}</li>
-                            ))}
-                        </ol>
-                    </div>
-                )}
+                    )}
 
-                {ai.risk_flags && ai.risk_flags.length > 0 ? (
-                    <div className="ai-section ai-risk-section">
-                        <div className="ai-section-header">
-                            <AlertTriangle size={18} />
-                            <h4>Risk Flags</h4>
-                        </div>
-                        <ul className="ai-risk-list">
-                            {ai.risk_flags.map((flag, i) => (
-                                <li key={i}>{flag}</li>
-                            ))}
-                        </ul>
-                    </div>
-                ) : (
-                    <div className="ai-section ai-no-risk">
-                        <div className="ai-section-header">
-                            <Shield size={18} />
-                            <h4>Risk Flags</h4>
-                        </div>
-                        <p>No concerns detected — great progress!</p>
-                    </div>
-                )}
+                    <div className="ai-secondary-grid">
+                        {ai.risk_flags && ai.risk_flags.length > 0 ? (
+                            <div className="ai-section ai-risk-section">
+                                <div className="ai-section-header">
+                                    <AlertTriangle size={18} />
+                                    <h4>Risk Flags</h4>
+                                </div>
+                                <ul className="ai-risk-list">
+                                    {ai.risk_flags.map((flag, i) => (
+                                        <li key={i}>{flag}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        ) : (
+                            <div className="ai-section ai-no-risk">
+                                <div className="ai-section-header">
+                                    <Shield size={18} />
+                                    <h4>Risk Flags</h4>
+                                </div>
+                                <p>No concerns detected — great progress!</p>
+                            </div>
+                        )}
 
-                {ai.recovery_outlook && (
-                    <div className="ai-section ai-outlook-section">
-                        <div className="ai-section-header">
-                            <Telescope size={18} />
-                            <h4>Recovery Outlook</h4>
-                        </div>
-                        <p>{ai.recovery_outlook}</p>
+                        {ai.recovery_outlook && (
+                            <div className="ai-section ai-outlook-section">
+                                <div className="ai-section-header">
+                                    <Telescope size={18} />
+                                    <h4>Recovery Outlook</h4>
+                                </div>
+                                <p>{ai.recovery_outlook}</p>
+                            </div>
+                        )}
                     </div>
-                )}
-            </div>
+                </div>
+            </section>
         );
     };
 
     return (
-        <div className="page-container">
+        <div className="page-container page-container--report">
             <header className="page-header">
                 <button onClick={() => navigate('/dashboard')} className="btn-icon">
                     <ArrowLeft size={20} />
@@ -661,17 +1224,16 @@ export default function AnalysisReport() {
                 </button>
                 <h1 className="page-title">Analysis Report</h1>
                 <p className="page-subtitle">
-                    Profile-based session assessment and 30-day progress tracking — personalized to your age, activity, and health profile.
+                    Demographic ML comparison for your latest session, plus 30-day progress tracking and AI insights.
                 </p>
             </header>
 
-            {/* Controls */}
             <div className="analysis-controls">
                 <div className="analysis-control-group" style={{ flex: 2 }}>
                     <label className="analysis-control-label">Test Type</label>
-                    <select 
-                        className="analysis-test-type" 
-                        value={selectedTest} 
+                    <select
+                        className="analysis-test-type"
+                        value={selectedTest}
                         onChange={(e) => setSelectedTest(e.target.value)}
                         disabled={loading}
                         style={{
@@ -733,13 +1295,12 @@ export default function AnalysisReport() {
                 </button>
             </div>
 
-            {/* Loading State */}
             {loading && (
                 <div className="analysis-loading">
                     <div className="analysis-loading-content">
                         <Loader2 size={32} className="btn-loader" style={{ color: '#3b82f6' }} />
-                        <h3>Computing your 30-day analysis...</h3>
-                        <p>Computing profile-based benchmarks, 30-day trends, and AI insights.</p>
+                        <h3>Building your analysis report...</h3>
+                        <p>Computing demographic comparison, 30-day trends, and AI insights.</p>
                     </div>
                     <div className="skeleton-grid">
                         {[1, 2, 3, 4].map(i => (
@@ -759,7 +1320,6 @@ export default function AnalysisReport() {
                 </div>
             )}
 
-            {/* Error State */}
             {error && !loading && !sessionData && (
                 <div className="analysis-error">
                     <AlertTriangle size={28} />
@@ -774,93 +1334,98 @@ export default function AnalysisReport() {
             )}
 
             {progressNote && !loading && (
-                <div style={{
-                    padding: '14px 18px',
-                    marginBottom: '16px',
-                    background: '#fffbeb',
-                    border: '1px solid #fcd34d',
-                    borderRadius: '8px',
-                    fontSize: '0.95rem',
-                    color: '#92400e',
-                }}>
+                <div className="report-note report-note-warn" style={{ marginBottom: 16 }}>
                     {progressNote}
                 </div>
             )}
 
-            {/* Results */}
             {(data || sessionData) && !loading && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                     <div style={{ display: 'flex', justifyContent: 'flex-end', width: '100%' }}>
-                        <button 
-                            onClick={() => generatePDF(targetRef, {filename: `Stryde-Analysis-${selectedTest.replace('Arm - ', '').replace(' ', '')}.pdf`})}
-                            style={{ 
-                                display: 'inline-flex', alignItems: 'center', gap: '8px', 
-                                padding: '10px 16px', backgroundColor: '#111', color: '#fff', 
-                                border: 'none', borderRadius: '8px', cursor: 'pointer',
-                                fontSize: '0.95rem', fontWeight: 500, boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-                            }}
+                        <button
+                            className="report-pdf-btn"
+                            onClick={() => generatePDF(targetRef, { filename: `Stryde-Analysis-${selectedTest.replace('Arm - ', '').replace(' ', '')}.pdf` })}
                         >
                             <Download size={16} />
                             <span>Download PDF</span>
                         </button>
                     </div>
 
-                    <div ref={targetRef} className="analysis-results" style={{ padding: '24px', backgroundColor: '#fcfcfc', borderRadius: '12px' }}>
-                        {renderNormativeSection()}
+                    <div ref={targetRef} className="analysis-results report-results">
+                        {renderExecutiveSummary()}
+                        {renderMlBenchmarks()}
+                        {renderRadarChart()}
+                        {renderChartsFallback()}
 
                         {data && (
-                            <>
-                                <div style={{ marginBottom: '24px', borderBottom: '1px solid #e5e5e5', paddingBottom: '16px', marginTop: assessmentSource ? '32px' : 0 }}>
-                                    <h2 style={{ margin: 0, fontSize: '1.5rem', color: '#111' }}>30-Day Progress: {selectedTest.replace('Arm - ', '')}</h2>
-                                    <div className="analysis-meta" style={{ marginTop: '12px' }}>
-                                        <span>{data.meta.record_count} sessions</span>
-                                        <span>·</span>
-                                        <span>{data.meta.date_range.from} → {data.meta.date_range.to}</span>
-                                        <span>·</span>
-                                        <span style={{ textTransform: 'capitalize' }}>{data.meta.side} side</span>
-                                    </div>
+                            <section className="report-section">
+                                <div className="report-section-header">
+                                    <TrendingUp size={22} />
+                                    <h2>30-Day Progress</h2>
+                                </div>
+                                <p className="report-section-desc">
+                                    Trend KPIs and chart reference bands use
+                                    {hasInjury ? ' injury-aware ' : ' '}
+                                    progress targets (not the demographic peer model).
+                                    {hasInjury
+                                        ? ' Expectations are lowered to reflect rehab context.'
+                                        : ''}
+                                </p>
+                                <div className="analysis-meta" style={{ marginTop: 0 }}>
+                                    <span>{data.meta.record_count} sessions</span>
+                                    <span>·</span>
+                                    <span>{data.meta.date_range.from} → {data.meta.date_range.to}</span>
+                                    <span>·</span>
+                                    <span style={{ textTransform: 'capitalize' }}>{data.meta.side} side</span>
+                                    {progressTargets && (
+                                        <>
+                                            <span>·</span>
+                                            <span>
+                                                ROM goal {progressTargets.rom_full_abduction}°
+                                                {hasInjury ? ' (injury-aware)' : ''}
+                                            </span>
+                                        </>
+                                    )}
                                 </div>
 
                                 {renderMetricCards()}
 
-                                <div style={{ marginTop: '32px' }}>
-                                    {renderChart()}
+                                <div style={{ marginTop: 24 }}>
+                                    {renderProgressChart()}
+                                    {renderStabilityTrend()}
                                 </div>
-
-                                <div style={{ marginTop: '32px' }}>
-                                    {renderAIInsights()}
-                                </div>
-                            </>
+                            </section>
                         )}
+
+                        {renderAIInsights()}
                     </div>
                 </div>
             )}
 
-            {/* Empty State */}
             {!loading && !error && !data && !sessionData && !hasGenerated && (
                 <div className="analysis-empty">
                     <FileBarChart size={48} strokeWidth={1} />
                     <h3>Analysis Report</h3>
-                    <p>Select your test side and click Generate Report for a profile-based assessment and 30-day progress (requires 3+ sessions).</p>
+                    <p>Select your test side and click Generate Report for a demographic ML comparison and 30-day progress (requires 3+ sessions).</p>
                     <div className="analysis-features">
+                        <div className="analysis-feature">
+                            <Brain size={18} />
+                            <span><strong>Demographic ML:</strong> Measured vs demographically matched healthy baseline</span>
+                        </div>
+                        <div className="analysis-feature">
+                            <BarChart3 size={18} />
+                            <span><strong>Charts:</strong> Measured vs expected, score radar, and 30-day trends</span>
+                        </div>
+                        <div className="analysis-feature">
+                            <Target size={18} />
+                            <span><strong>Progress targets:</strong> Injury-aware bands for recovery timelines (not session grades)</span>
+                        </div>
                         <div className="analysis-feature">
                             <TrendingUp size={18} />
                             <span><strong>Recovery Slope:</strong> Linear regression on your peak ROM trend</span>
                         </div>
                         <div className="analysis-feature">
                             <CalendarCheck size={18} />
-                            <span><strong>Consistency Index:</strong> How regularly you've been testing</span>
-                        </div>
-                        <div className="analysis-feature">
-                            <Shield size={18} />
-                            <span><strong>Stability Delta:</strong> Neuromuscular control improvement over time</span>
-                        </div>
-                        <div className="analysis-feature">
-                            <Brain size={18} />
-                            <span><strong>Profile Benchmark:</strong> Compare your latest session to targets for your age and activity</span>
-                        </div>
-                        <div className="analysis-feature">
-                            <Brain size={18} />
                             <span><strong>AI Insights:</strong> Personalized clinical analysis powered by Groq</span>
                         </div>
                     </div>

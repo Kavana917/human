@@ -74,14 +74,18 @@ export default function TestRecordCard({ record }: { record: any }) {
     };
 
     const renderSpeedChart = () => {
-        if (!speedData || !speedData.bins) return null;
+        const peaks: number[] = speedData?.speedAttemptPeaks || [];
+        if (!speedData || peaks.length === 0) return null;
+        const best = speedData.bestPeakAngularVelocity ?? speedData.peakAngularVelocity ?? 0;
         const data = {
-            labels: speedData.bins,
+            labels: peaks.map((_, i) => `Attempt ${i + 1}`),
             datasets: [
                 {
-                    label: 'Reps per 5s',
-                    data: speedData.reps || [],
-                    backgroundColor: 'rgba(34, 197, 94, 0.8)',
+                    label: 'Peak °/s',
+                    data: peaks,
+                    backgroundColor: peaks.map((p) =>
+                        p >= best && best > 0 ? 'rgba(34, 197, 94, 0.8)' : 'rgba(59, 130, 246, 0.7)'
+                    ),
                 }
             ]
         };
@@ -90,11 +94,14 @@ export default function TestRecordCard({ record }: { record: any }) {
             responsive: true,
             maintainAspectRatio: false,
             plugins: {
-                title: { display: true, text: 'Speed Test Reps' },
+                title: {
+                    display: true,
+                    text: `Speed — best ${Number(best).toFixed(1)} °/s`,
+                },
                 legend: { display: false }
             },
             scales: {
-                y: { beginAtZero: true, ticks: { stepSize: 1 } }
+                y: { beginAtZero: true, title: { display: true, text: '°/s' } }
             }
         };
 
@@ -143,8 +150,17 @@ export default function TestRecordCard({ record }: { record: any }) {
                         <div style={{ fontWeight: 'bold', fontSize: '1.1rem' }}>{romData?.maxRoll?.toFixed(0) || '-'}°</div>
                     </div>
                     <div style={{ background: '#f9fafb', padding: '8px 16px', borderRadius: '6px', border: '1px solid #e5e5e5' }}>
-                        <div style={{ fontSize: '0.8rem', color: '#666' }}>Speed Reps</div>
-                        <div style={{ fontWeight: 'bold', fontSize: '1.1rem' }}>{speedData?.speedTotalReps || 0}</div>
+                        <div style={{ fontSize: '0.8rem', color: '#666' }}>Peak °/s</div>
+                        <div style={{ fontWeight: 'bold', fontSize: '1.1rem' }}>
+                            {(() => {
+                                const peak = speedData?.bestPeakAngularVelocity
+                                    ?? speedData?.peakAngularVelocity
+                                    ?? speedData?.speedPeakAngularVelocity;
+                                return peak != null && Number(peak) > 0
+                                    ? `${Number(peak).toFixed(0)}`
+                                    : 'n/a';
+                            })()}
+                        </div>
                     </div>
                 </div>
             </div>

@@ -1,0 +1,65 @@
+{
+  "movement_id": "abduction",
+  "feature_columns": [
+    "age",
+    "sex_encoded",
+    "height_cm",
+    "weight_kg",
+    "bmi",
+    "activity_encoded",
+    "strength_decay",
+    "dynamic_velocity_factor"
+  ],
+  "target_columns": [
+    "rom_target_deg",
+    "SPEED",
+    "STABILITY"
+  ],
+  "n_neighbors": 3,
+  "weights": "distance",
+  "train_test_seed": 42,
+  "test_size": 0.2,
+  "n_train": 800,
+  "n_test": 200,
+  "mae_rom_target": 1.4591736843987098,
+  "mae_speed": 26.83247675536133,
+  "mae_stability": 0.4072490592658522,
+  "noise_baseline_rom": 2.3999999999999986,
+  "rom_target_std_test": 17.865034170329345,
+  "sklearn_version": "1.7.2",
+  "clinical_weighting": true,
+  "prior_blend": 0.25,
+  "feature_set": "full",
+  "feature_weights": {
+    "age": 0.18349284785576667,
+    "sex_encoded": 0.0017587164848217821,
+    "height_cm": 0.002084962143433276,
+    "weight_kg": 0.008622311093950145,
+    "bmi": 0.3634288134538903,
+    "activity_encoded": 0.06082809867850204,
+    "strength_decay": 0.24727894861847172,
+    "dynamic_velocity_factor": 0.1325053016711641
+  },
+  "feature_weights_vector": [
+    0.18349284785576667,
+    0.0017587164848217821,
+    0.002084962143433276,
+    0.008622311093950145,
+    0.3634288134538903,
+    0.06082809867850204,
+    0.24727894861847172,
+    0.1325053016711641
+  ],
+  "weight_tuning": true,
+  "weight_tuning_config": {
+    "feature_set": "full",
+    "prior_blend": 0.25,
+    "target_mix_rom": 0.95,
+    "target_mix_speed": 0.025,
+    "target_mix_stab": 0.025,
+    "mult_age": 1.0,
+    "mult_bmi": 1.6,
+    "mult_activity": 1.0,
+    "mult_anthro": 0.05
+  }
+}

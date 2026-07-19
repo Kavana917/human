@@ -58,33 +58,98 @@ stability_in_countdown = False
 speed_baseline = 0.0
 speed_baseline_set = False
 
-# Speed test state variables
+# Speed test — 3 max-effort ramps (peak angular velocity °/s)
+# Phases: countdown | ready | ramp | rest | complete
+speed_phase = 'countdown'
 speed_countdown_start_time = 0
 speed_test_start_time = 0
-speed_in_countdown = False
-speed_rep_times = []
+speed_attempt_index = 0  # 0..2
+speed_attempt_peaks = []  # peak °/s per completed attempt
+speed_current_ramp_peak = 0.0
+speed_ramp_start_time = 0
 speed_test_complete = False
-speed_consistency = 0.0
-speed_total_reps = 0
-speed_rep_in_progress = 0
-speed_reached_peak = False
-speed_was_at_baseline = False
 speed_user_max_angle = 0.0
 speed_angle_history = []
-speed_last_rep_time = 0.0
-speed_prev_at_baseline = False
-speed_prev_below_peak = True
+speed_prev_roll_for_velocity = None
+speed_prev_time_for_velocity = None
+speed_best_peak = 0.0
+speed_avg_peak = 0.0
 
 # Speed test constants
-SPEED_COUNTDOWN_SECONDS = 5.0
-SPEED_ACTIVE_SECONDS = 30.0
+SPEED_COUNTDOWN_SECONDS = 3.0
+SPEED_NUM_ATTEMPTS = 3
+SPEED_RAMP_TIMEOUT_SECONDS = 6.0
 SPEED_BASE_TOLERANCE = 5.0
-SPEED_REP_START_ANGLE = 15.0
-SPEED_SHOULDER_LEVEL = 90.0
-SPEED_MAX_MARGIN = 10.0
-SPEED_REP_DEBOUNCE_SECONDS = 0.35
+SPEED_RAMP_START_ANGLE = 15.0
+SPEED_MAX_ANGULAR_VELOCITY_CAP = 800.0
 
 target_tolerance = 5  # ±5 degrees tolerance for stability test
+
+
+def _speed_finalize_results():
+    """Compute best/avg from attempt peaks and mark complete."""
+    global speed_best_peak, speed_avg_peak, speed_test_complete, speed_phase, active_recording
+    if speed_attempt_peaks:
+        speed_best_peak = max(speed_attempt_peaks)
+        speed_avg_peak = sum(speed_attempt_peaks) / len(speed_attempt_peaks)
+    else:
+        speed_best_peak = 0.0
+        speed_avg_peak = 0.0
+    speed_test_complete = True
+    speed_phase = 'complete'
+    active_recording = None
+    print(
+        f"*** SPEED TEST COMPLETE! *** peaks={speed_attempt_peaks} "
+        f"best={speed_best_peak:.1f}°/s avg={speed_avg_peak:.1f}°/s"
+    )
+
+
+def _speed_snapshot():
+    """Build the /data/speed JSON payload from current state."""
+    peaks_rounded = [round(p, 1) for p in speed_attempt_peaks]
+    best = round(speed_best_peak, 1) if speed_best_peak > 0 else (
+        round(max(speed_attempt_peaks), 1) if speed_attempt_peaks else 0.0
+    )
+    avg = round(speed_avg_peak, 1) if speed_avg_peak > 0 else (
+        round(sum(speed_attempt_peaks) / len(speed_attempt_peaks), 1) if speed_attempt_peaks else 0.0
+    )
+    live_peak = round(speed_current_ramp_peak, 1) if speed_phase == 'ramp' else best
+
+    progress = 0.0
+    now = time.time()
+    if speed_phase == 'countdown' and speed_countdown_start_time > 0:
+        progress = min((now - speed_countdown_start_time) / SPEED_COUNTDOWN_SECONDS, 1.0)
+    elif speed_phase == 'ramp' and speed_ramp_start_time > 0:
+        progress = min((now - speed_ramp_start_time) / SPEED_RAMP_TIMEOUT_SECONDS, 1.0)
+    elif speed_phase == 'complete':
+        progress = 1.0
+    elif speed_phase in ('ready', 'rest'):
+        progress = speed_attempt_index / SPEED_NUM_ATTEMPTS
+
+    ds = datasets['speed']
+    angle_times = [e['time'] for e in speed_angle_history] if speed_angle_history else (ds['time'] or [])
+    angle_values = [e['angle'] for e in speed_angle_history] if speed_angle_history else (ds['roll'] or [])
+
+    return {
+        "status": "ok" if ds['time'] else "empty",
+        "speedPhase": speed_phase,
+        "speedProgress": progress,
+        "speedAttempt": min(speed_attempt_index + 1, SPEED_NUM_ATTEMPTS),
+        "speedAttemptTotal": SPEED_NUM_ATTEMPTS,
+        "speedAttemptPeaks": peaks_rounded,
+        "speedCurrentRampPeak": round(speed_current_ramp_peak, 1),
+        "peakAngularVelocity": best,
+        "bestPeakAngularVelocity": best,
+        "avgPeakAngularVelocity": avg,
+        "speedPeakAngularVelocity": live_peak if speed_phase == 'ramp' else best,
+        "speedTestComplete": speed_test_complete,
+        "speedUserMaxAngle": speed_user_max_angle,
+        "romMaxAngle": rom_max_angle,
+        "romAvailable": rom_max_angle > 0,
+        "times": angle_times,
+        "rolls": angle_values,
+        "currentAngle": angle_values[-1] if angle_values else 0,
+    }
 
 
 # ===========================================================================
@@ -99,11 +164,11 @@ def toggle_recording(test_type, state):
     global stability_hold_data, stability_results, stability_in_target_zone
     global stability_baseline, stability_baseline_set, stability_in_countdown
     global speed_baseline, speed_baseline_set, speed_countdown_start_time
-    global speed_test_start_time, speed_in_countdown, speed_rep_times
-    global speed_test_complete, speed_consistency, speed_total_reps
-    global speed_rep_in_progress, speed_user_max_angle, speed_reached_peak
-    global speed_angle_history, speed_was_at_baseline, speed_last_rep_time
-    global speed_prev_at_baseline, speed_prev_below_peak
+    global speed_test_start_time, speed_phase, speed_attempt_index, speed_attempt_peaks
+    global speed_current_ramp_peak, speed_ramp_start_time, speed_test_complete
+    global speed_user_max_angle, speed_angle_history
+    global speed_prev_roll_for_velocity, speed_prev_time_for_velocity
+    global speed_best_peak, speed_avg_peak
 
     imu = _get_latest_imu()
     print(f"Toggle recording called: test_type={test_type}, state={state}")
@@ -143,26 +208,25 @@ def toggle_recording(test_type, state):
 
             print("Starting stability test - 5-second countdown for phase 1")
 
-        # For speed test, capture baseline and initialize
+        # For speed test — 3 max-effort ramps
         if test_type == 'speed':
             speed_baseline = imu.get('roll', 0)
             speed_baseline_set = True
             print(f"Speed baseline captured (arm down): {speed_baseline:.2f}°")
 
+            speed_phase = 'countdown'
             speed_countdown_start_time = time.time()
             speed_test_start_time = 0
-            speed_in_countdown = True
-            speed_rep_times = []
+            speed_attempt_index = 0
+            speed_attempt_peaks = []
+            speed_current_ramp_peak = 0.0
+            speed_ramp_start_time = 0
             speed_test_complete = False
-            speed_consistency = 0.0
-            speed_total_reps = 0
-            speed_rep_in_progress = 0
-            speed_reached_peak = False
-            speed_was_at_baseline = False
             speed_angle_history = []
-            speed_last_rep_time = 0.0
-            speed_prev_at_baseline = False
-            speed_prev_below_peak = True
+            speed_prev_roll_for_velocity = None
+            speed_prev_time_for_velocity = None
+            speed_best_peak = 0.0
+            speed_avg_peak = 0.0
 
             if rom_max_angle > 0:
                 speed_user_max_angle = rom_max_angle
@@ -171,9 +235,10 @@ def toggle_recording(test_type, state):
                 speed_user_max_angle = 150.0
                 print("Warning: No ROM data available, using default max angle of 150°")
 
-            rep_peak_target = max(SPEED_SHOULDER_LEVEL, speed_user_max_angle - SPEED_MAX_MARGIN)
-            print(f"Starting speed test - {SPEED_COUNTDOWN_SECONDS:.0f}s countdown then {SPEED_ACTIVE_SECONDS:.0f}s active test")
-            print(f"Rep rule: leave base (>{SPEED_REP_START_ANGLE:.0f}°) then reach peak (≥{rep_peak_target:.0f}°) = 1 rep")
+            print(
+                f"Starting speed test — {SPEED_COUNTDOWN_SECONDS:.0f}s countdown, "
+                f"then {SPEED_NUM_ATTEMPTS} max-effort ramps (peak °/s)"
+            )
 
         if test_type in datasets:
             datasets[test_type]['time'].clear()
@@ -283,83 +348,7 @@ def data_stability():
 
 @abduction_bp.route('/data/speed')
 def data_speed():
-    global speed_countdown_start_time, speed_test_start_time, speed_in_countdown
-    global speed_rep_times, speed_test_complete, speed_consistency
-    global speed_total_reps, rom_max_angle, speed_user_max_angle, speed_angle_history
-
-    current_time = time.time()
-    ds = datasets['speed']
-
-    if speed_in_countdown and speed_countdown_start_time > 0:
-        speed_phase = 'countdown'
-        countdown_elapsed = current_time - speed_countdown_start_time
-        speed_progress = min(countdown_elapsed / SPEED_COUNTDOWN_SECONDS, 1.0)
-    elif speed_test_complete:
-        speed_phase = 'complete'
-        speed_progress = 1.0
-    elif speed_test_start_time > 0:
-        speed_phase = 'active'
-        test_elapsed = current_time - speed_test_start_time
-        speed_progress = min(test_elapsed / SPEED_ACTIVE_SECONDS, 1.0)
-    else:
-        speed_phase = 'countdown'
-        speed_progress = 0
-
-    if ds['time'] and len(ds['time']) > 1:
-        times = ds['time']
-        rolls = ds['roll']
-
-        num_bins = 6
-        bins = [f"{i*5}-{(i+1)*5}s" for i in range(num_bins)]
-        reps_per_bin = [0] * num_bins
-
-        for rep_time in speed_rep_times:
-            bin_idx = min(int(rep_time / 5.0), num_bins - 1)
-            if 0 <= bin_idx < num_bins:
-                reps_per_bin[bin_idx] += 1
-
-        angle_times = [entry['time'] for entry in speed_angle_history] if speed_angle_history else times
-        angle_values = [entry['angle'] for entry in speed_angle_history] if speed_angle_history else rolls
-
-        response = {
-            "status": "ok",
-            "bins": bins,
-            "reps": reps_per_bin,
-            "speedPhase": speed_phase,
-            "speedProgress": speed_progress,
-            "speedRepTimes": list(speed_rep_times),
-            "speedTotalReps": speed_total_reps,
-            "speedTestComplete": speed_test_complete,
-            "speedUserMaxAngle": speed_user_max_angle,
-            "romMaxAngle": rom_max_angle,
-            "romAvailable": rom_max_angle > 0,
-            "times": angle_times,
-            "rolls": angle_values,
-            "currentAngle": rolls[-1] if rolls else 0
-        }
-
-        if speed_test_complete:
-            response["speedConsistency"] = speed_consistency if speed_consistency > 0 else None
-            if speed_total_reps > 0:
-                response["speedRepsPerMinute"] = speed_total_reps * 2
-
-        return response
-
-    return {
-        "status": "empty",
-        "speedPhase": speed_phase,
-        "speedProgress": speed_progress,
-        "speedTotalReps": speed_total_reps,
-        "speedTestComplete": speed_test_complete,
-        "speedUserMaxAngle": speed_user_max_angle,
-        "romMaxAngle": rom_max_angle,
-        "romAvailable": rom_max_angle > 0,
-        "bins": [f"{i*5}-{(i+1)*5}s" for i in range(6)],
-        "reps": [0] * 6,
-        "times": [],
-        "rolls": [],
-        "currentAngle": 0
-    }
+    return _speed_snapshot()
 
 
 # ===========================================================================
@@ -374,11 +363,11 @@ def data_collection_loop():
     global stability_hold_data, stability_results, stability_in_target_zone
     global stability_baseline, stability_baseline_set, stability_in_countdown
     global speed_baseline, speed_baseline_set, speed_countdown_start_time
-    global speed_test_start_time, speed_in_countdown, speed_rep_times
-    global speed_test_complete, speed_consistency, speed_total_reps
-    global speed_rep_in_progress, speed_user_max_angle, speed_reached_peak
-    global speed_angle_history, speed_was_at_baseline, speed_last_rep_time
-    global speed_prev_at_baseline, speed_prev_below_peak, active_recording
+    global speed_test_start_time, speed_phase, speed_attempt_index, speed_attempt_peaks
+    global speed_current_ramp_peak, speed_ramp_start_time, speed_test_complete
+    global speed_user_max_angle, speed_angle_history, active_recording
+    global speed_prev_roll_for_velocity, speed_prev_time_for_velocity
+    global speed_best_peak, speed_avg_peak
 
     print("[Abduction] Data collection thread started")
 
@@ -484,14 +473,13 @@ def data_collection_loop():
                                 print("Stability test recording automatically stopped")
 
                 # ----------------------------------------------------------
-                # Speed test logic
+                # Speed test — 3 max-effort ramps (peak |Δroll/Δt| °/s)
                 # ----------------------------------------------------------
-                if active_recording == 'speed':
+                if active_recording == 'speed' and not speed_test_complete:
                     current_roll = ds['roll'][-1] if ds['roll'] else 0
                     current_time = time.time()
                     at_base = abs(current_roll) <= SPEED_BASE_TOLERANCE
-                    left_base_for_rep = current_roll >= SPEED_REP_START_ANGLE
-                    peak_target = max(SPEED_SHOULDER_LEVEL, speed_user_max_angle - SPEED_MAX_MARGIN)
+                    left_base = current_roll >= SPEED_RAMP_START_ANGLE
 
                     if speed_test_start_time > 0:
                         test_relative_time = current_time - speed_test_start_time
@@ -499,77 +487,62 @@ def data_collection_loop():
                         if len(speed_angle_history) > 1200:
                             speed_angle_history.pop(0)
 
-                    # Phase 1: Countdown Phase
-                    if speed_in_countdown:
+                    if speed_phase == 'countdown':
                         countdown_elapsed = current_time - speed_countdown_start_time
-                        countdown_remaining = SPEED_COUNTDOWN_SECONDS - countdown_elapsed
-
-                        if int(countdown_elapsed) != int(countdown_elapsed - 0.05):
-                            print(f"Speed test countdown: {countdown_remaining:.1f}s remaining")
-
                         if countdown_elapsed >= SPEED_COUNTDOWN_SECONDS:
-                            speed_in_countdown = False
                             speed_test_start_time = current_time
                             speed_angle_history = []
-                            speed_was_at_baseline = at_base
-                            speed_prev_at_baseline = at_base
-                            speed_prev_below_peak = True
-                            speed_rep_in_progress = 0
-                            speed_reached_peak = False
-                            print(f"*** SPEED TEST STARTED - angle: {current_roll:.1f}°, at_base: {speed_was_at_baseline} ***")
+                            speed_phase = 'ready'
+                            print(f"*** SPEED READY — attempt 1/{SPEED_NUM_ATTEMPTS}, arm down then raise fast ***")
 
-                    # Phase 2: Active Test Phase
-                    elif not speed_test_complete and speed_test_start_time > 0:
-                        test_elapsed = current_time - speed_test_start_time
+                    elif speed_phase == 'ready':
+                        # Wait until arm is at base, then detect leave-base to start ramp
+                        if left_base:
+                            speed_phase = 'ramp'
+                            speed_ramp_start_time = current_time
+                            speed_current_ramp_peak = 0.0
+                            speed_prev_roll_for_velocity = current_roll
+                            speed_prev_time_for_velocity = current_time
+                            print(f"*** RAMP {speed_attempt_index + 1}/{SPEED_NUM_ATTEMPTS} STARTED ***")
 
-                        if test_elapsed <= SPEED_ACTIVE_SECONDS:
-                            prev_state = speed_rep_in_progress
+                    elif speed_phase == 'ramp':
+                        # Track peak angular velocity
+                        if (
+                            speed_prev_roll_for_velocity is not None
+                            and speed_prev_time_for_velocity is not None
+                        ):
+                            dt = current_time - speed_prev_time_for_velocity
+                            if 0.01 <= dt <= 0.25:
+                                ang_vel = abs(current_roll - speed_prev_roll_for_velocity) / dt
+                                if ang_vel <= SPEED_MAX_ANGULAR_VELOCITY_CAP:
+                                    if ang_vel > speed_current_ramp_peak:
+                                        speed_current_ramp_peak = ang_vel
+                        speed_prev_roll_for_velocity = current_roll
+                        speed_prev_time_for_velocity = current_time
 
-                            if not speed_was_at_baseline and at_base:
-                                speed_was_at_baseline = True
-                                print(f"[{test_elapsed:.1f}s] Ready at base angle (0° ± {SPEED_BASE_TOLERANCE:.0f}°)")
+                        ramp_elapsed = current_time - speed_ramp_start_time
+                        returned_to_base = at_base and ramp_elapsed > 0.35
+                        timed_out = ramp_elapsed >= SPEED_RAMP_TIMEOUT_SECONDS
 
-                            if speed_was_at_baseline:
-                                if speed_rep_in_progress == 0:
-                                    if left_base_for_rep and speed_prev_at_baseline:
-                                        speed_rep_in_progress = 1
-                                        print(f"[{test_elapsed:.1f}s] Rep STARTED - angle: {current_roll:.1f}°")
-
-                                elif speed_rep_in_progress == 1:
-                                    crossed_peak_upward = current_roll >= peak_target and speed_prev_below_peak
-                                    if crossed_peak_upward and (test_elapsed - speed_last_rep_time) >= SPEED_REP_DEBOUNCE_SECONDS:
-                                        speed_total_reps += 1
-                                        speed_rep_times.append(test_elapsed)
-                                        speed_last_rep_time = test_elapsed
-                                        print(f"[{test_elapsed:.1f}s] ✓ Rep {speed_total_reps} COMPLETE - max reached at {current_roll:.1f}°")
-                                        speed_rep_in_progress = 0
-
-                            speed_prev_at_baseline = at_base
-                            speed_prev_below_peak = current_roll < peak_target
-
-                            if prev_state != speed_rep_in_progress:
-                                print(f"[DEBUG] State changed: {prev_state} -> {speed_rep_in_progress}, angle={current_roll:.1f}°, reps={speed_total_reps}")
-
-                            if int(test_elapsed * 2) % 10 == 0 and len(ds['time']) % 100 == 0:
-                                print(f"[{test_elapsed:.0f}s] reps={speed_total_reps}, angle={current_roll:.1f}°, state={speed_rep_in_progress}")
-
-                        else:
-                            # Phase 3: Test Complete
-                            if len(speed_rep_times) >= 2:
-                                intervals = [speed_rep_times[i] - speed_rep_times[i-1] for i in range(1, len(speed_rep_times))]
-                                if intervals:
-                                    speed_consistency = statistics.stdev(intervals)
-                                    avg_interval = statistics.mean(intervals)
-                                    print(f"Rep intervals: avg={avg_interval:.2f}s, std={speed_consistency:.2f}s")
+                        if returned_to_base or timed_out:
+                            peak = round(speed_current_ramp_peak, 1)
+                            speed_attempt_peaks.append(peak)
+                            print(
+                                f"*** RAMP {speed_attempt_index + 1} DONE — peak={peak:.1f}°/s "
+                                f"({'timeout' if timed_out else 'returned to base'}) ***"
+                            )
+                            if len(speed_attempt_peaks) >= SPEED_NUM_ATTEMPTS:
+                                _speed_finalize_results()
                             else:
-                                speed_consistency = 0.0
+                                speed_attempt_index += 1
+                                speed_current_ramp_peak = 0.0
+                                speed_phase = 'rest'
+                                print(f"*** REST — return arm down for attempt {speed_attempt_index + 1}/{SPEED_NUM_ATTEMPTS} ***")
 
-                            speed_test_complete = True
-                            print(f"*** SPEED TEST COMPLETE! ***")
-                            print(f"Results: {speed_total_reps} total reps, consistency (std dev): {speed_consistency:.2f}s")
-
-                            active_recording = None
-                            print("Speed test recording automatically stopped")
+                    elif speed_phase == 'rest':
+                        if at_base:
+                            speed_phase = 'ready'
+                            print(f"*** READY for attempt {speed_attempt_index + 1}/{SPEED_NUM_ATTEMPTS} ***")
 
                 if len(ds['time']) > HISTORY_LEN:
                     ds['time'].pop(0)

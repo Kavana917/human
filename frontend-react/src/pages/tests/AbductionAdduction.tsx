@@ -197,15 +197,19 @@ interface ChartData {
             sample_count: number;
         };
     };
-    // Speed test specific fields
-    speedPhase?: 'countdown' | 'active' | 'complete';
+    // Speed test — 3 max-effort ramps
+    speedPhase?: 'countdown' | 'ready' | 'ramp' | 'rest' | 'complete';
     speedProgress?: number;
-    speedRepTimes?: number[];
-    speedConsistency?: number | null;
-    speedTotalReps?: number;
+    speedAttempt?: number;
+    speedAttemptTotal?: number;
+    speedAttemptPeaks?: number[];
+    speedCurrentRampPeak?: number;
     speedTestComplete?: boolean;
     speedUserMaxAngle?: number;
-    speedRepsPerMinute?: number;
+    speedPeakAngularVelocity?: number;
+    peakAngularVelocity?: number;
+    bestPeakAngularVelocity?: number;
+    avgPeakAngularVelocity?: number;
 }
 
 function RecordedBadge() {
@@ -224,7 +228,7 @@ function RecordedBadge() {
         >
             <span style={{ fontWeight: 600, fontSize: '0.9rem', color: '#166534' }}>Recorded</span>
             <span style={{ fontSize: '0.8rem', color: '#6b7280' }}>
-                Data captured for this test. Profile-based analysis is available on the dashboard.
+                Data captured for this test. Demographic analysis is available on the Analysis Report.
             </span>
         </div>
     );
@@ -575,22 +579,31 @@ export default function AbductionAdduction() {
             return <Line data={data} options={options} />;
         }
         else if (activeTab === 'speed') {
-            // Show real-time angle line graph during test, bar chart after completion
+            const phase = chartData.speedPhase || 'countdown';
+            const attempt = chartData.speedAttempt || 1;
+            const total = chartData.speedAttemptTotal || 3;
+            const livePeak = chartData.speedCurrentRampPeak ?? chartData.speedPeakAngularVelocity ?? 0;
+            const phaseTitle =
+                phase === 'countdown' ? 'Get ready — keep arm down' :
+                phase === 'ready' ? `Attempt ${attempt}/${total} — raise as fast as you can` :
+                phase === 'ramp' ? `Ramp ${attempt}/${total} — peak ${livePeak.toFixed(0)} °/s` :
+                phase === 'rest' ? `Rest — return arm down for attempt ${attempt}/${total}` :
+                `Complete — best ${(chartData.bestPeakAngularVelocity ?? chartData.peakAngularVelocity ?? 0).toFixed(1)} °/s`;
+
             if (!chartData.speedTestComplete) {
-                // Real-time angle line graph during test
                 const maxAngle = chartData.speedUserMaxAngle || 150;
-                const peakThreshold = Math.max(90, maxAngle - 10);  // Must exceed this for peak
-                const enterBaselineThreshold = 5;   // Must return near base to complete rep
-                const leaveBaselineThreshold = 15;   // Must leave base to start rep
-                
+                const leaveBaselineThreshold = 15;
+                const enterBaselineThreshold = 5;
+                const activeColor = phase === 'ramp' ? '#22c55e' : phase === 'rest' ? '#3b82f6' : '#f59e0b';
+
                 const data = {
                     labels: chartData.times?.map((t: number) => t.toFixed(1)) || [],
                     datasets: [
                         {
                             label: 'Arm Angle',
                             data: chartData.rolls || [],
-                            borderColor: chartData.speedPhase === 'active' ? '#22c55e' : '#f59e0b',
-                            backgroundColor: chartData.speedPhase === 'active' ? 'rgba(34, 197, 94, 0.1)' : 'rgba(245, 158, 11, 0.1)',
+                            borderColor: activeColor,
+                            backgroundColor: 'rgba(34, 197, 94, 0.1)',
                             fill: true,
                             tension: 0.2,
                             pointRadius: 0,
@@ -605,33 +618,15 @@ export default function AbductionAdduction() {
                     maintainAspectRatio: false,
                     animation: { duration: 0 },
                     plugins: {
-                        title: { 
-                            display: true, 
-                            text: chartData.speedPhase === 'countdown' 
-                                ? '🔴 Get Ready! Countdown in progress...' 
-                                : `🟢 Test Active! Reps: ${chartData.speedTotalReps || 0}`, 
+                        title: {
+                            display: true,
+                            text: phaseTitle,
                             font: { size: 14, weight: 'bold' },
-                            color: chartData.speedPhase === 'active' ? '#166534' : '#92400e'
+                            color: phase === 'ramp' ? '#166534' : '#92400e'
                         },
                         legend: { display: false },
                         annotation: {
                             annotations: {
-                                peakLine: {
-                                    type: 'line',
-                                    yMin: peakThreshold,
-                                    yMax: peakThreshold,
-                                    borderColor: '#22c55e',
-                                    borderWidth: 2,
-                                    borderDash: [5, 5],
-                                    label: {
-                                        display: true,
-                                        content: `Peak (≥${peakThreshold.toFixed(0)}°)`,
-                                        position: 'start',
-                                        backgroundColor: 'rgba(34, 197, 94, 0.8)',
-                                        color: 'white',
-                                        font: { size: 10 }
-                                    }
-                                },
                                 leaveLine: {
                                     type: 'line',
                                     yMin: leaveBaselineThreshold,
@@ -641,7 +636,7 @@ export default function AbductionAdduction() {
                                     borderDash: [3, 3],
                                     label: {
                                         display: true,
-                                        content: `Base exit (> ${leaveBaselineThreshold}°)`,
+                                        content: `Start ramp (> ${leaveBaselineThreshold}°)`,
                                         position: 'end',
                                         backgroundColor: 'rgba(245, 158, 11, 0.7)',
                                         color: 'white',
@@ -657,7 +652,7 @@ export default function AbductionAdduction() {
                                     borderDash: [5, 5],
                                     label: {
                                         display: true,
-                                        content: `Base return (<= ${enterBaselineThreshold}°)`,
+                                        content: `Return base (<= ${enterBaselineThreshold}°)`,
                                         position: 'start',
                                         backgroundColor: 'rgba(239, 68, 68, 0.8)',
                                         color: 'white',
@@ -668,30 +663,29 @@ export default function AbductionAdduction() {
                         }
                     },
                     scales: {
-                        y: { 
+                        y: {
                             title: { display: true, text: 'Arm Angle (degrees)' },
                             min: 0,
                             max: Math.max(maxAngle + 20, 180)
                         },
-                        x: { 
-                            title: { display: true, text: 'Time (s)' }, 
-                            ticks: { maxTicksLimit: 10 } 
+                        x: {
+                            title: { display: true, text: 'Time (s)' },
+                            ticks: { maxTicksLimit: 10 }
                         }
                     }
                 };
                 return <Line data={data} options={options} />;
             } else {
-                // 5-second interval bar chart after test completion
+                const peaks = chartData.speedAttemptPeaks || [];
+                const best = chartData.bestPeakAngularVelocity ?? chartData.peakAngularVelocity ?? 0;
                 const data = {
-                    labels: chartData.bins || [],
+                    labels: peaks.map((_, i) => `Attempt ${i + 1}`),
                     datasets: [
                         {
-                            label: 'Reps per 5s',
-                            data: chartData.reps || [],
-                            backgroundColor: (chartData.reps || []).map((r: number) => 
-                                r >= 4 ? 'rgba(34, 197, 94, 0.8)' : 
-                                r >= 2 ? 'rgba(245, 158, 11, 0.8)' : 
-                                'rgba(239, 68, 68, 0.8)'
+                            label: 'Peak °/s',
+                            data: peaks,
+                            backgroundColor: peaks.map((p: number) =>
+                                p >= best && best > 0 ? 'rgba(34, 197, 94, 0.8)' : 'rgba(59, 130, 246, 0.7)'
                             ),
                             borderColor: 'rgba(107, 114, 128, 0.5)',
                             borderWidth: 1
@@ -703,21 +697,20 @@ export default function AbductionAdduction() {
                     responsive: true,
                     maintainAspectRatio: false,
                     plugins: {
-                        title: { 
-                            display: true, 
-                            text: `Speed Test Complete: ${chartData.speedTotalReps || 0} total reps in 30 seconds`, 
+                        title: {
+                            display: true,
+                            text: `Best ${best.toFixed(1)} °/s · Avg ${(chartData.avgPeakAngularVelocity ?? 0).toFixed(1)} °/s`,
                             font: { size: 14, weight: 'bold' as const }
                         },
                         legend: { display: false }
                     },
                     scales: {
-                        y: { 
-                            title: { display: true, text: 'Reps' }, 
-                            beginAtZero: true, 
-                            ticks: { stepSize: 1 },
-                            max: Math.max(...(chartData.reps || [0]), 5)
+                        y: {
+                            title: { display: true, text: 'Peak angular velocity (°/s)' },
+                            beginAtZero: true,
+                            max: Math.max(...peaks, 50) * 1.15
                         },
-                        x: { title: { display: true, text: 'Time Window' } }
+                        x: { title: { display: true, text: 'Attempt' } }
                     }
                 };
                 return <Bar data={data} options={options} />;
@@ -781,18 +774,18 @@ export default function AbductionAdduction() {
                                 </div>
                             )}
                             <ol style={{ margin: 0, paddingLeft: '20px', fontSize: '0.95rem', color: '#333', lineHeight: '1.6' }}>
-                                <li style={{ marginBottom: '8px' }}>Click "Start Recording" to begin the speed test</li>
-                                <li style={{ marginBottom: '8px' }}>During the <strong>5-second countdown</strong>, keep your arm down and get ready</li>
-                                <li style={{ marginBottom: '8px' }}>When the test starts, perform <strong>as many up-movements as possible in 30 seconds</strong></li>
-                                <li style={{ marginBottom: '8px' }}>Each rep: Start near base (0°), then raise to your peak target</li>
-                                <li>Test completes automatically and shows your results</li>
+                                <li style={{ marginBottom: '8px' }}>Click &quot;Start Recording&quot; to begin</li>
+                                <li style={{ marginBottom: '8px' }}>During the <strong>3-second countdown</strong>, keep your arm down</li>
+                                <li style={{ marginBottom: '8px' }}>You will do <strong>3 max-effort ramps</strong>: raise your arm as fast as possible, then return down</li>
+                                <li style={{ marginBottom: '8px' }}>Rest briefly with arm down between attempts</li>
+                                <li>Primary score = <strong>best peak angular velocity (°/s)</strong> of the three attempts</li>
                             </ol>
                             <div style={{ marginTop: '16px', padding: '12px 16px', background: '#f0fdf4', borderRadius: '6px', fontSize: '0.9rem', color: '#166534', border: '1px solid #86efac' }}>
-                                <strong>🎯 Rep Detection:</strong><br/>
-                                • <span style={{color: '#f59e0b'}}>Start rep:</span> Leave base and go above 15°<br/>
-                                • <span style={{color: '#22c55e'}}>Peak:</span> Reach ≥{Math.max(90, (chartData?.speedUserMaxAngle || 150) - 10).toFixed(0)}° (max: {chartData?.speedUserMaxAngle?.toFixed(0) || 'N/A'}°)<br/>
-                                • <span style={{color: '#ef4444'}}>Count:</span> Rep is counted when peak is crossed upward<br/>
-                                • <strong>One rep = Base → Peak (no down-return required)</strong>
+                                <strong>How it works:</strong><br/>
+                                • Start ramp when angle goes above 15° from base<br/>
+                                • Peak °/s is measured during the raise<br/>
+                                • Return arm near base (≤5°) to finish that attempt<br/>
+                                • Best and average of 3 peaks are saved for your report
                             </div>
                         </div>
                     )}
@@ -856,50 +849,60 @@ export default function AbductionAdduction() {
                         {activeTab === 'stability' && stabilityCompleted && <RecordedBadge />}
 
                         {/* Speed Test Status Display */}
-                        {activeTab === 'speed' && isRecording && chartData && (
-                            <div style={{ 
-                                padding: '12px 16px', 
-                                background: chartData.speedPhase === 'countdown' ? '#fffbeb' : 
-                                           chartData.speedPhase === 'active' ? '#f0fdf4' : '#f0f9ff',
-                                border: `1px solid ${chartData.speedPhase === 'countdown' ? '#fcd34d' : 
-                                                     chartData.speedPhase === 'active' ? '#86efac' : '#93c5fd'}`,
+                        {activeTab === 'speed' && isRecording && chartData && (() => {
+                            const phase = chartData.speedPhase || 'countdown';
+                            const attempt = chartData.speedAttempt || 1;
+                            const total = chartData.speedAttemptTotal || 3;
+                            const phaseLabel =
+                                phase === 'countdown' ? 'COUNTDOWN' :
+                                phase === 'ready' ? 'READY' :
+                                phase === 'ramp' ? 'RAMP' :
+                                phase === 'rest' ? 'REST' : 'DONE';
+                            const bg =
+                                phase === 'countdown' ? '#fffbeb' :
+                                phase === 'ramp' ? '#f0fdf4' :
+                                phase === 'rest' ? '#eff6ff' : '#f0f9ff';
+                            const border =
+                                phase === 'countdown' ? '#fcd34d' :
+                                phase === 'ramp' ? '#86efac' :
+                                phase === 'rest' ? '#93c5fd' : '#93c5fd';
+                            return (
+                            <div style={{
+                                padding: '12px 16px',
+                                background: bg,
+                                border: `1px solid ${border}`,
                                 borderRadius: '8px',
                                 margin: '0 16px 16px 16px',
                             }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                                    <div style={{ fontWeight: 600, fontSize: '1rem', color: chartData.speedPhase === 'countdown' ? '#92400e' : 
-                                                                                         chartData.speedPhase === 'active' ? '#166534' : '#1e40af' }}>
-                                        {chartData.speedPhase === 'countdown' ? '⏱️ Get Ready!' : 
-                                         chartData.speedPhase === 'active' ? '🏃 Test Active!' : '✅ Test Complete'}
+                                    <div style={{ fontWeight: 600, fontSize: '1rem', color: '#111' }}>
+                                        Attempt {attempt}/{total}
                                     </div>
-                                    <div style={{ 
+                                    <div style={{
                                         padding: '4px 8px',
                                         borderRadius: '12px',
                                         fontSize: '0.8rem',
                                         fontWeight: 600,
-                                        backgroundColor: chartData.speedPhase === 'active' ? '#22c55e' : 
-                                                         chartData.speedPhase === 'countdown' ? '#f59e0b' : '#6b7280',
+                                        backgroundColor: phase === 'ramp' ? '#22c55e' : phase === 'countdown' ? '#f59e0b' : '#3b82f6',
                                         color: 'white'
                                     }}>
-                                        {chartData.speedPhase === 'countdown' ? 'COUNTDOWN' : 
-                                         chartData.speedPhase === 'active' ? 'ACTIVE' : 'DONE'}
+                                        {phaseLabel}
                                     </div>
                                 </div>
-                                
-                                {/* Stats Row */}
-                                <div style={{ 
-                                    display: 'flex', 
-                                    justifyContent: 'space-around', 
+
+                                <div style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-around',
                                     marginBottom: '12px',
                                     padding: '8px',
                                     background: 'rgba(255,255,255,0.5)',
                                     borderRadius: '6px'
                                 }}>
                                     <div style={{ textAlign: 'center' }}>
-                                        <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#6366f1' }}>
-                                            {chartData.speedTotalReps || 0}
+                                        <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#0ea5e9' }}>
+                                            {(chartData.speedCurrentRampPeak ?? 0).toFixed(0)}
                                         </div>
-                                        <div style={{ fontSize: '0.7rem', color: '#6b7280' }}>REPS</div>
+                                        <div style={{ fontSize: '0.7rem', color: '#6b7280' }}>LIVE °/s</div>
                                     </div>
                                     <div style={{ textAlign: 'center' }}>
                                         <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#059669' }}>
@@ -908,67 +911,63 @@ export default function AbductionAdduction() {
                                         <div style={{ fontSize: '0.7rem', color: '#6b7280' }}>ANGLE</div>
                                     </div>
                                     <div style={{ textAlign: 'center' }}>
-                                        <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#dc2626' }}>
-                                            {chartData.speedUserMaxAngle?.toFixed(0) || 'N/A'}°
+                                        <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#6366f1' }}>
+                                            {(chartData.speedAttemptPeaks || []).length}
                                         </div>
-                                        <div style={{ fontSize: '0.7rem', color: '#6b7280' }}>MAX</div>
+                                        <div style={{ fontSize: '0.7rem', color: '#6b7280' }}>DONE</div>
                                     </div>
                                 </div>
-                                
-                                {/* Countdown Timer */}
-                                {(chartData.speedPhase === 'countdown' || chartData.speedPhase === 'active') && (
+
+                                {phase === 'countdown' && (
                                     <div style={{ marginBottom: '8px', textAlign: 'center' }}>
-                                        {chartData.speedPhase === 'countdown' ? (
-                                            <>
-                                                <div style={{ 
-                                                    fontSize: '3rem', 
-                                                    fontWeight: 'bold', 
-                                                    color: '#dc2626',
-                                                    textShadow: '0 0 10px rgba(220, 38, 38, 0.3)',
-                                                    marginBottom: '4px'
-                                                }}>
-                                                    {Math.ceil(Math.max(0, 5 - (chartData.speedProgress ? chartData.speedProgress * 5 : 0)))}
-                                                </div>
-                                                <div style={{ fontSize: '0.9rem', fontWeight: 500, color: '#92400e' }}>
-                                                    Keep arm DOWN - Get ready!
-                                                </div>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <div style={{ 
-                                                    fontSize: '2.5rem', 
-                                                    fontWeight: 'bold', 
-                                                    color: '#22c55e',
-                                                    marginBottom: '4px'
-                                                }}>
-                                                    {Math.ceil(Math.max(0, 30 - (chartData.speedProgress ? chartData.speedProgress * 30 : 0)))}s
-                                                </div>
-                                                <div style={{ fontSize: '0.9rem', fontWeight: 500, color: '#166534' }}>
-                                                    Keep going! Full range of motion!
-                                                </div>
-                                            </>
-                                        )}
+                                        <div style={{ fontSize: '3rem', fontWeight: 'bold', color: '#dc2626', marginBottom: '4px' }}>
+                                            {Math.ceil(Math.max(0, 3 - (chartData.speedProgress ? chartData.speedProgress * 3 : 0)))}
+                                        </div>
+                                        <div style={{ fontSize: '0.9rem', fontWeight: 500, color: '#92400e' }}>
+                                            Keep arm DOWN — get ready!
+                                        </div>
                                     </div>
                                 )}
-                                
-                                {/* Progress Bar */}
-                                <div style={{ 
-                                    width: '100%', 
-                                    height: '8px', 
-                                    backgroundColor: '#e5e5e5', 
+                                {phase === 'ready' && (
+                                    <div style={{ textAlign: 'center', marginBottom: '8px', fontWeight: 500, color: '#166534' }}>
+                                        Raise your arm as fast as possible now
+                                    </div>
+                                )}
+                                {phase === 'ramp' && (
+                                    <div style={{ textAlign: 'center', marginBottom: '8px', fontWeight: 500, color: '#166534' }}>
+                                        Keep going — then return arm down
+                                    </div>
+                                )}
+                                {phase === 'rest' && (
+                                    <div style={{ textAlign: 'center', marginBottom: '8px', fontWeight: 500, color: '#1e40af' }}>
+                                        Rest at base — next attempt unlocking…
+                                    </div>
+                                )}
+
+                                {(chartData.speedAttemptPeaks || []).length > 0 && (
+                                    <div style={{ fontSize: '0.85rem', color: '#374151', marginBottom: '8px' }}>
+                                        Peaks so far: {(chartData.speedAttemptPeaks || []).map((p, i) => `${i + 1}: ${p.toFixed(1)}`).join(' · ')} °/s
+                                    </div>
+                                )}
+
+                                <div style={{
+                                    width: '100%',
+                                    height: '8px',
+                                    backgroundColor: '#e5e5e5',
                                     borderRadius: '4px',
                                     overflow: 'hidden'
                                 }}>
-                                    <div style={{ 
-                                        width: `${(chartData.speedProgress || 0) * 100}%`, 
-                                        height: '100%', 
-                                        backgroundColor: chartData.speedPhase === 'countdown' ? '#f59e0b' : '#22c55e',
+                                    <div style={{
+                                        width: `${(chartData.speedProgress || 0) * 100}%`,
+                                        height: '100%',
+                                        backgroundColor: phase === 'countdown' ? '#f59e0b' : '#22c55e',
                                         borderRadius: '4px',
                                         transition: 'width 0.2s ease-out'
                                     }} />
                                 </div>
                             </div>
-                        )}
+                            );
+                        })()}
 
                         {/* Stability Test Status Display */}
                         {activeTab === 'stability' && isRecording && chartData && (
@@ -1049,16 +1048,28 @@ export default function AbductionAdduction() {
                                 </h4>
                                 <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
                                     <div>
-                                        <div style={{ fontSize: '0.8rem', color: '#6b7280' }}>Total reps (30s)</div>
-                                        <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#111' }}>{chartData.speedTotalReps || 0}</div>
-                                    </div>
-                                    {chartData.speedConsistency != null && chartData.speedConsistency !== undefined && (
-                                        <div>
-                                            <div style={{ fontSize: '0.8rem', color: '#6b7280' }}>Rep interval consistency (SD)</div>
-                                            <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#111' }}>{chartData.speedConsistency.toFixed(2)}s</div>
+                                        <div style={{ fontSize: '0.8rem', color: '#6b7280' }}>Best peak (°/s)</div>
+                                        <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#111' }}>
+                                            {(chartData.bestPeakAngularVelocity ?? chartData.peakAngularVelocity ?? 0).toFixed(1)}
                                         </div>
-                                    )}
+                                    </div>
+                                    <div>
+                                        <div style={{ fontSize: '0.8rem', color: '#6b7280' }}>Average (°/s)</div>
+                                        <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#111' }}>
+                                            {(chartData.avgPeakAngularVelocity ?? 0).toFixed(1)}
+                                        </div>
+                                    </div>
                                 </div>
+                                {(chartData.speedAttemptPeaks || []).length > 0 && (
+                                    <div style={{ marginTop: '12px', fontSize: '0.9rem', color: '#374151' }}>
+                                        Attempts:{' '}
+                                        {(chartData.speedAttemptPeaks || []).map((p, i) => (
+                                            <span key={i} style={{ marginRight: '12px' }}>
+                                                #{i + 1}: <strong>{p.toFixed(1)}</strong> °/s
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         )}
 

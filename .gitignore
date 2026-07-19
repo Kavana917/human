@@ -1,6 +1,23 @@
 ﻿node_modules/
 
-
+# Environment
 .env
 .env.local
-.env
+
+# Logs
+*.log
+*.err.log
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Debug dumps (may contain secrets/tokens)
+backend/debug.json
+
+# Editor config (machine-specific)
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db

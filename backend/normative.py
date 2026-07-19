@@ -1,17 +1,21 @@
 """
-Profile-aware normative benchmarks for shoulder abduction tests.
-Expected ranges are adjusted for age, gender, activity level, and injury status.
+Injury-aware progress targets for shoulder abduction tests.
+
+Used for 30-day recovery prediction and chart reference bands — not as the
+primary session comparison (that is the demographic k-NN model).
+Thresholds adjust for age, gender, activity level, and injury status.
 """
 
 from typing import Any, Dict, List, Optional
 
 
+# Peak angular velocity (°/s) targets for max-effort abduction ramps (best of 3)
 ACTIVITY_SPEED = {
-    'sedentary': {'excellent': 10, 'good': 6, 'consistency_excellent': 0.6, 'consistency_good': 1.1},
-    'light': {'excellent': 12, 'good': 8, 'consistency_excellent': 0.55, 'consistency_good': 1.0},
-    'moderate': {'excellent': 15, 'good': 10, 'consistency_excellent': 0.5, 'consistency_good': 1.0},
-    'active': {'excellent': 18, 'good': 12, 'consistency_excellent': 0.45, 'consistency_good': 0.9},
-    'athlete': {'excellent': 22, 'good': 15, 'consistency_excellent': 0.4, 'consistency_good': 0.85},
+    'sedentary': {'excellent': 80.0, 'good': 50.0},
+    'light': {'excellent': 95.0, 'good': 60.0},
+    'moderate': {'excellent': 110.0, 'good': 75.0},
+    'active': {'excellent': 130.0, 'good': 90.0},
+    'athlete': {'excellent': 160.0, 'good': 110.0},
 }
 
 DEFAULT_ACTIVITY = 'moderate'
@@ -23,8 +27,8 @@ def _clamp(value: float, lo: float, hi: float) -> float:
 
 def get_normative_targets(profile: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
-    Compute expected performance targets for a user profile.
-    Returns thresholds used for tiered assessment and chart reference lines.
+    Compute injury-aware progress targets for charts and recovery timelines.
+    Not used to grade a single session against a demographic peer model.
     """
     profile = profile or {}
     age = int(profile.get('age') or 30)
@@ -67,8 +71,8 @@ def get_normative_targets(profile: Optional[Dict[str, Any]] = None) -> Dict[str,
     rom_full_abduction = _clamp(rom_full_abduction * injury_factor_rom, 60, 180)
     rom_shoulder_level = _clamp(rom_shoulder_level * injury_factor_rom, 50, 100)
 
-    speed_excellent = max(4, int(round(speed_cfg['excellent'] * injury_factor_speed)))
-    speed_good = max(3, int(round(speed_cfg['good'] * injury_factor_speed)))
+    speed_excellent = max(30.0, round(speed_cfg['excellent'] * injury_factor_speed, 1))
+    speed_good = max(20.0, round(speed_cfg['good'] * injury_factor_speed, 1))
 
     stab_excellent_sd = 2.0 if not has_injury else 2.8
     stab_moderate_sd = 4.0 if not has_injury else 5.0
@@ -79,10 +83,11 @@ def get_normative_targets(profile: Optional[Dict[str, Any]] = None) -> Dict[str,
         'rom_shoulder_level': round(rom_shoulder_level, 1),
         'rom_full_abduction': round(rom_full_abduction, 1),
         'rom_maximum': round(rom_maximum, 1),
+        'speed_excellent_deg_s': speed_excellent,
+        'speed_good_deg_s': speed_good,
+        # Legacy aliases kept for older frontend builds during transition
         'speed_excellent_reps': speed_excellent,
         'speed_good_reps': speed_good,
-        'speed_consistency_excellent': speed_cfg['consistency_excellent'],
-        'speed_consistency_good': speed_cfg['consistency_good'],
         'stability_excellent_sd': stab_excellent_sd,
         'stability_moderate_sd': stab_moderate_sd,
         'profile_summary': {
@@ -143,44 +148,35 @@ def _tier_stability(avg_sd: float, norms: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _tier_speed(reps: int, consistency: Optional[float], norms: Dict[str, Any]) -> Dict[str, Any]:
-    exc = norms['speed_excellent_reps']
-    good = norms['speed_good_reps']
-    if reps >= exc:
+def _tier_speed(peak_deg_s: Optional[float], norms: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Grade best-of-3 peak angular velocity (°/s). Returns None if no measurement."""
+    if peak_deg_s is None:
+        return None
+
+    exc = norms['speed_excellent_deg_s']
+    good = norms['speed_good_deg_s']
+    value = float(peak_deg_s)
+
+    if value >= exc:
         tier, label, color = 'excellent', 'Excellent', 'green'
-    elif reps >= good:
+    elif value >= good:
         tier, label, color = 'moderate', 'Good', 'orange'
     else:
         tier, label, color = 'needs_improvement', 'Needs Attention', 'red'
 
-    pct = min(100.0, round((reps / exc) * 100, 1)) if exc > 0 else 0.0
-
-    consistency_assessment = None
-    if consistency is not None:
-        c_exc = norms['speed_consistency_excellent']
-        c_good = norms['speed_consistency_good']
-        if consistency < c_exc:
-            c_tier, c_label, c_color = 'excellent', 'Very Consistent', 'green'
-        elif consistency <= c_good:
-            c_tier, c_label, c_color = 'moderate', 'Consistent', 'orange'
-        else:
-            c_tier, c_label, c_color = 'needs_improvement', 'Inconsistent', 'red'
-        consistency_assessment = {
-            'value': round(consistency, 2),
-            'tier': c_tier,
-            'label': c_label,
-            'color': c_color,
-        }
+    pct = min(100.0, round((value / exc) * 100, 1)) if exc > 0 else 0.0
 
     return {
-        'reps': reps,
+        'value': round(value, 1),
         'tier': tier,
         'label': label,
         'color': color,
         'percent_of_ideal': pct,
+        'expected_excellent_deg_s': exc,
+        'expected_good_deg_s': good,
+        # Legacy aliases for frontend transition
         'expected_excellent_reps': exc,
         'expected_good_reps': good,
-        'consistency': consistency_assessment,
     }
 
 
@@ -194,10 +190,27 @@ def extract_session_metrics(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if peak_rom is None:
         return None
 
-    reps = int(speed.get('speedTotalReps', 0) or 0)
-    consistency = speed.get('speedConsistency')
-    if consistency is not None:
-        consistency = float(consistency)
+    peak_av = speed.get('bestPeakAngularVelocity')
+    if peak_av is None:
+        peak_av = speed.get('peakAngularVelocity')
+    if peak_av is None:
+        peak_av = speed.get('speedPeakAngularVelocity')
+    if peak_av is not None:
+        try:
+            peak_av = float(peak_av)
+            if peak_av <= 0:
+                peak_av = None
+        except (TypeError, ValueError):
+            peak_av = None
+
+    avg_peak = speed.get('avgPeakAngularVelocity')
+    if avg_peak is not None:
+        try:
+            avg_peak = float(avg_peak)
+        except (TypeError, ValueError):
+            avg_peak = None
+
+    attempt_peaks = speed.get('speedAttemptPeaks') or []
 
     stab_results = stab.get('results') or {}
     phase_sds: List[float] = []
@@ -210,8 +223,9 @@ def extract_session_metrics(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
     return {
         'peak_rom': float(peak_rom),
-        'reps': reps,
-        'rep_consistency': consistency,
+        'peak_angular_velocity': peak_av,
+        'avg_peak_angular_velocity': avg_peak,
+        'attempt_peaks': attempt_peaks,
         'avg_sd': avg_sd,
         'phase_sds': phase_sds,
     }
@@ -219,19 +233,20 @@ def extract_session_metrics(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 def assess_session(metrics: Dict[str, Any], profile: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
-    Compare session metrics to profile-adjusted normative targets.
-    Returns per-metric assessments and an overall summary.
+    Optional helper: tier metrics against injury-aware progress targets.
+    Kept for tooling / experiments; primary session grading uses the ML model.
     """
     norms = get_normative_targets(profile)
 
     rom = _tier_rom(metrics['peak_rom'], norms)
     stability = _tier_stability(metrics['avg_sd'], norms) if metrics.get('avg_sd') is not None else None
-    speed = _tier_speed(metrics['reps'], metrics.get('rep_consistency'), norms)
+    speed = _tier_speed(metrics.get('peak_angular_velocity'), norms)
 
     tiers = [rom['tier']]
     if stability:
         tiers.append(stability['tier'])
-    tiers.append(speed['tier'])
+    if speed:
+        tiers.append(speed['tier'])
 
     excellent_count = sum(1 for t in tiers if t == 'excellent')
     if excellent_count == len(tiers):

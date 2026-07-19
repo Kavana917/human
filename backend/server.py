@@ -85,6 +85,13 @@ app.register_blueprint(abduction.abduction_bp)
 analysis.init(SUPABASE_URL, SUPABASE_KEY, GROQ_API_KEY)
 app.register_blueprint(analysis.analysis_bp)
 
+try:
+    from kinematics_model import warm_load
+    warm_load()
+    print("  Kinematics k-NN models warmed (abduction, adduction)")
+except Exception as e:
+    print(f"  WARNING: Kinematics model warm-load skipped: {e}")
+
 
 # ===========================================================================
 # Main
@@ -106,7 +113,7 @@ if __name__ == '__main__':
     print("  GET  /data/stability    <- Stability test data")
     print("  GET  /data/speed        <- Speed test data")
     print("  GET  /api/analysis/30day   <- 30-day progress report")
-    print("  GET  /api/analysis/session <- profile-based session assessment")
+    print("  GET  /api/analysis/session <- ML demographic session comparison")
     print("=" * 60)
 
     app.run(port=7777, host='0.0.0.0')

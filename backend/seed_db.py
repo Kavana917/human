@@ -44,10 +44,11 @@ headers = {
 }
 
 TEST_TYPES = [
+    "Arm - Abduction & Adduction",
     "Arm - Flexion & Extension",
     "Arm - Internal Rotation",
     "Arm - External Rotation",
-    "Arm - Horizontal Abduction & Adduction"
+    "Arm - Horizontal Abduction & Adduction",
 ]
 
 SIDES = ['left', 'right']
@@ -66,8 +67,16 @@ def generate_mock_record(test_type, side, session_info):
     
     # Calculate values based on progress (0.0 to 1.0)
     base_rom = 75 + (80 * progress) + random.uniform(-4, 4)
-    base_reps = int(5 + (15 * progress) + random.randint(-2, 2))
     base_sd = 5.5 - (4.0 * progress) + random.uniform(-0.4, 0.4)
+    # Best-of-3 peak angular velocity (°/s) — rises with recovery (~55–120 band)
+    base_peak = 55 + (55 * progress) + random.uniform(-4, 4)
+    attempt_peaks = [
+        round(max(20, base_peak + random.uniform(-12, -2)), 1),
+        round(max(20, base_peak + random.uniform(-6, 6)), 1),
+        round(max(20, base_peak + random.uniform(-2, 10)), 1),
+    ]
+    best_peak = round(max(attempt_peaks), 1)
+    avg_peak = round(sum(attempt_peaks) / len(attempt_peaks), 1)
     
     created_at = (datetime.now(timezone.utc) - timedelta(days=days_ago)).isoformat()
     
@@ -115,15 +124,19 @@ def generate_mock_record(test_type, side, session_info):
         }
     }
     
-    # Mock speed_data
+    # Mock speed_data — 3 max-effort ramps (peak °/s)
     speed_data = {
         "status": "ok",
-        "bins": ["0-5s", "5-10s", "10-15s", "15-20s", "20-25s", "25-30s"],
-        "reps": [max(0, base_reps // 6) for _ in range(6)],
         "speedPhase": "complete",
         "speedProgress": 1.0,
-        "speedRepTimes": [round(i * 1.5, 1) for i in range(max(0, base_reps))],
-        "speedTotalReps": max(0, base_reps),
+        "speedAttempt": 3,
+        "speedAttemptTotal": 3,
+        "speedAttemptPeaks": attempt_peaks,
+        "speedCurrentRampPeak": 0.0,
+        "peakAngularVelocity": best_peak,
+        "bestPeakAngularVelocity": best_peak,
+        "avgPeakAngularVelocity": avg_peak,
+        "speedPeakAngularVelocity": best_peak,
         "speedTestComplete": True,
         "speedUserMaxAngle": round(base_rom, 1),
         "romMaxAngle": round(base_rom, 1),
@@ -131,8 +144,6 @@ def generate_mock_record(test_type, side, session_info):
         "times": times,
         "rolls": rolls,
         "currentAngle": 5.0,
-        "speedConsistency": round(1.2 - (0.7 * progress), 2),
-        "speedRepsPerMinute": max(0, base_reps * 2)
     }
     
     return {

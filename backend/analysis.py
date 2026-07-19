@@ -14,7 +14,9 @@ import numpy as np
 import requests
 import urllib.parse
 
-from normative import get_normative_targets, extract_session_metrics, assess_session
+from normative import get_normative_targets, extract_session_metrics
+from kinematics_model import predict_expected
+from comparison import build_ml_comparison
 
 analysis_bp = Blueprint('analysis', __name__)
 
@@ -76,10 +78,19 @@ def extract_sessions(rows):
             continue  # skip sessions without ROM data — can't do regression
         assessment = rom.get('assessment', '')
 
-        # --- Speed ---
+        # --- Speed (best-of-3 peak angular velocity °/s) ---
         speed = row.get('speed_data') or {}
-        reps = speed.get('speedTotalReps', 0) or 0
-        rep_consistency = speed.get('speedConsistency')
+        peak_av = speed.get('bestPeakAngularVelocity')
+        if peak_av is None:
+            peak_av = speed.get('peakAngularVelocity')
+        if peak_av is None:
+            peak_av = speed.get('speedPeakAngularVelocity')
+        try:
+            peak_av = float(peak_av) if peak_av is not None else None
+            if peak_av is not None and peak_av <= 0:
+                peak_av = None
+        except (TypeError, ValueError):
+            peak_av = None
 
         # --- Stability ---
         stab = row.get('stability_data') or {}
@@ -96,8 +107,7 @@ def extract_sessions(rows):
             'date': dt,
             'peak_rom': float(peak_rom),
             'assessment': assessment,
-            'reps': int(reps),
-            'rep_consistency': float(rep_consistency) if rep_consistency is not None else None,
+            'peak_angular_velocity': peak_av,
             'avg_sd': float(avg_sd) if avg_sd is not None else None,
             'phase_sds': phase_sds,
         })
@@ -311,7 +321,8 @@ def compute_predicted_recovery(recovery_slope, consistency_index, target_rom=Non
 # ===========================================================================
 
 def generate_ai_insights(sessions, profile, recovery_slope, consistency_index,
-                         stability_delta, predicted_recovery, test_type, side):
+                         stability_delta, predicted_recovery, test_type, side,
+                         ml_expected=None, ml_comparison=None):
     """
     Send computed metrics + profile to Groq LLaMA 3.3 70B for clinical narrative.
     Returns structured JSON: summary, detail, recommendations, risk_flags, recovery_outlook.
@@ -334,12 +345,16 @@ def generate_ai_insights(sessions, profile, recovery_slope, consistency_index,
         phase_str = ""
         if s['phase_sds']:
             phase_str = f" [4 phases: {', '.join(f'{sd:.1f}°' for sd in s['phase_sds'])}]"
+        peak_av_str = (
+            f"{s['peak_angular_velocity']:.1f}°/s"
+            if s.get('peak_angular_velocity') is not None else "N/A"
+        )
         line = (
             f"Day {day_idx} ({date_str}): ROM={s['peak_rom']:.1f}°, "
-            f"Reps={s['reps']}, "
+            f"PeakAV={peak_av_str}, "
             f"AvgSD={s['avg_sd']:.2f}°{phase_str}" if s['avg_sd'] is not None
             else f"Day {day_idx} ({date_str}): ROM={s['peak_rom']:.1f}°, "
-                 f"Reps={s['reps']}, AvgSD=N/A"
+                 f"PeakAV={peak_av_str}, AvgSD=N/A"
         )
         line += f", Assessment={s['assessment']}"
         trend_lines.append(line)
@@ -378,6 +393,27 @@ def generate_ai_insights(sessions, profile, recovery_slope, consistency_index,
     elif predicted_recovery and predicted_recovery.get('already_reached'):
         pred_section = f"- Target ROM of {predicted_recovery['target_rom']}° has been REACHED!"
 
+    # Demographic-expected baseline (k-NN)
+    ml_section = "Not available (profile incomplete or model unavailable)"
+    if ml_expected and ml_comparison:
+        rom_c = ml_comparison.get('rom') or {}
+        stab_c = ml_comparison.get('stability') or {}
+        summary = (ml_comparison.get('variation_summary') or {}).get('label', 'n/a')
+        gender_note = (ml_expected.get('inputs_used') or {}).get('gender_note')
+        note_line = f"\n- Note: {gender_note}" if gender_note else ""
+        ml_section = (
+            f"- Expected ROM: {ml_expected['rom']:.1f}° | "
+            f"Measured: {rom_c.get('measured', 'n/a')}° | "
+            f"Deviation: {rom_c.get('deviation', 'n/a')}° ({rom_c.get('label', 'n/a')})\n"
+            f"- Expected Stability SD: {ml_expected['stability']:.2f}° | "
+            f"Measured: {stab_c.get('measured', 'n/a')}° | "
+            f"Verdict: {stab_c.get('label', 'n/a')}\n"
+            f"- Overall vs demographic baseline: {summary}\n"
+            f"- SPEED expected ({ml_expected['speed']:.1f} °/s) is a max-effort simulator "
+            f"metric — do NOT treat it as clinically comparable to measured peak angular velocity."
+            f"{note_line}"
+        )
+
     system_prompt = (
         "You are a clinical AI assistant for STRYDE, a shoulder rehabilitation "
         "monitoring system. You analyze objective movement data collected from "
@@ -412,6 +448,9 @@ def generate_ai_insights(sessions, profile, recovery_slope, consistency_index,
 
 ### Recovery Prediction
 {pred_section}
+
+### Demographic-Expected Baseline (k-NN model)
+{ml_section}
 
 ### Raw Session-by-Session Data
 {trend_data}
@@ -545,7 +584,8 @@ def analysis_debug():
 def analysis_session():
     """
     GET /api/analysis/session?user_id=&test_type=&side=
-  Profile-aware assessment of the most recent test session vs normative targets.
+    Primary: measured vs demographic k-NN expectation (ML).
+    Also returns injury-aware progress targets for 30-day chart context (not session grading).
     """
     user_id = request.args.get('user_id')
     test_type = request.args.get('test_type', 'Arm - Abduction & Adduction')
@@ -573,8 +613,10 @@ def analysis_session():
                 'message': 'Latest session has no valid ROM data.',
             }), 200
 
-        assessment = assess_session(metrics, profile)
-        norms = assessment['normative_targets']
+        # Injury-aware progress bands (used by charts / 30-day), not session grades
+        progress_targets = get_normative_targets(profile)
+        ml_expected = predict_expected(profile, movement='abduction')
+        ml_comparison = build_ml_comparison(metrics, ml_expected)
 
         created = row.get('created_at', '')
         try:
@@ -583,7 +625,6 @@ def analysis_session():
             session_date = created
 
         return jsonify({
-            'session_assessment': assessment,
             'session_metrics': metrics,
             'session_meta': {
                 'test_result_id': row.get('id'),
@@ -592,7 +633,11 @@ def analysis_session():
                 'test_type': test_type,
                 'side': side,
             },
-            'normative_targets': norms,
+            'progress_targets': progress_targets,
+            # Alias kept for older clients / 30-day chart wiring
+            'normative_targets': progress_targets,
+            'ml_expected': ml_expected,
+            'ml_comparison': ml_comparison,
         })
 
     except Exception as e:
@@ -666,7 +711,9 @@ def analysis_30day():
             }, f, indent=2)
 
         profile = fetch_profile(user_id)
-        norms = get_normative_targets(profile)
+        # Injury-aware progress targets for recovery prediction + chart reference lines
+        progress_targets = get_normative_targets(profile)
+        norms = progress_targets
         target_rom = norms['rom_full_abduction']
 
         # --- Extract sessions ---
@@ -716,14 +763,13 @@ def analysis_30day():
             recovery_slope, consistency_index, target_rom=target_rom
         )
 
-        # --- Normative assessment for latest session ---
-        session_assessment = None
+        # --- Latest session meta + ML demographic comparison ---
         session_meta = None
+        latest_metrics = None
         if rows:
             latest_row = rows[-1]
             latest_metrics = extract_session_metrics(latest_row)
             if latest_metrics:
-                session_assessment = assess_session(latest_metrics, profile)
                 created = latest_row.get('created_at', '')
                 try:
                     session_date = datetime.fromisoformat(
@@ -733,23 +779,36 @@ def analysis_30day():
                     session_date = created
                 session_meta = {'session_date': session_date, 'created_at': created}
 
+        ml_expected = predict_expected(profile, movement='abduction')
+        ml_comparison = build_ml_comparison(latest_metrics, ml_expected)
+
         # --- Chart data ---
         first_date = sessions[0]['date']
         chart_data = {
             'dates': [s['date'].strftime('%b %d') for s in sessions],
             'max_rom_values': [round(s['peak_rom'], 1) for s in sessions],
-            'rep_counts': [s['reps'] for s in sessions],
+            'peak_angular_velocities': [
+                round(s['peak_angular_velocity'], 1) if s.get('peak_angular_velocity') is not None else None
+                for s in sessions
+            ],
+            # Legacy key kept for older frontend; same series as peak_angular_velocities (0 for null)
+            'rep_counts': [
+                round(s['peak_angular_velocity'], 1) if s.get('peak_angular_velocity') is not None else 0
+                for s in sessions
+            ],
             'avg_stability_sds': [round(s['avg_sd'], 2) if s['avg_sd'] is not None else None for s in sessions],
             'regression_line': recovery_slope['regression_line'] if recovery_slope else [],
             'reference_rom_excellent': norms['rom_excellent'],
             'reference_rom_moderate': norms['rom_moderate'],
-            'reference_speed_excellent': norms['speed_excellent_reps'],
+            'reference_speed_excellent': norms['speed_excellent_deg_s'],
+            'reference_rom_expected': ml_expected['rom'] if ml_expected else None,
         }
 
         # --- AI Insights (Groq) ---
         ai_insights = generate_ai_insights(
             sessions, profile, recovery_slope, consistency_index,
-            stability_delta, predicted_recovery, test_type, side
+            stability_delta, predicted_recovery, test_type, side,
+            ml_expected=ml_expected, ml_comparison=ml_comparison,
         )
 
         # --- Build response ---
@@ -760,9 +819,11 @@ def analysis_30day():
             'predicted_recovery': predicted_recovery,
             'chart_data': chart_data,
             'ai_insights': ai_insights,
-            'normative_targets': norms,
-            'session_assessment': session_assessment,
+            'progress_targets': progress_targets,
+            'normative_targets': progress_targets,
             'session_meta': session_meta,
+            'ml_expected': ml_expected,
+            'ml_comparison': ml_comparison,
             'meta': {
                 'user_id': user_id,
                 'test_type': test_type,

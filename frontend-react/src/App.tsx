@@ -11,7 +11,6 @@ import TestSelection from './pages/TestSelection';
 import AbductionAdduction from './pages/tests/AbductionAdduction';
 import StandardTestPage from './pages/tests/StandardTestPage';
 import AnalysisReport from './pages/AnalysisReport';
-import CustomCursor from './components/CustomCursor';
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -38,7 +37,6 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <CustomCursor />
       <Routes>
         <Route path="/" element={session ? <Home /> : <Navigate to="/login" replace />} />
         <Route path="/dashboard" element={session ? <Dashboard /> : <Navigate to="/login" replace />} />
