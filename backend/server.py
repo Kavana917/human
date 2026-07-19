@@ -88,7 +88,7 @@ app.register_blueprint(analysis.analysis_bp)
 try:
     from kinematics_model import warm_load
     warm_load()
-    print("  Kinematics k-NN models warmed (abduction, adduction)")
+    print("  Kinematics k-NN models warmed (abduction, adduction, flexion, …)")
 except Exception as e:
     print(f"  WARNING: Kinematics model warm-load skipped: {e}")
 

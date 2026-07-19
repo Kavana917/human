@@ -43,7 +43,7 @@ const MOVEMENT_BANDS: Record<
     sdStart: 4.2,
     sdEnd: 1.4,
     refMax: 90,
-    phaseTargets: [30, 50, 70, 80],
+    phaseTargets: [45, 85],
   },
   'Arm - Extension': {
     romStart: 20,

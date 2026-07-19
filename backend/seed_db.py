@@ -67,7 +67,7 @@ MOVEMENT_BANDS = {
     },
     "Arm - Flexion": {
         "rom": (55, 85), "speed": (50, 105), "sd": (4.2, 1.4),
-        "ref_max": 90, "phases": [30, 50, 70, 80],
+        "ref_max": 90, "phases": [45, 85],
     },
     "Arm - Extension": {
         "rom": (20, 48), "speed": (40, 90), "sd": (3.2, 0.9),

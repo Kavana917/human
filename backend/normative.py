@@ -51,6 +51,20 @@ MOVEMENT_ROM_BASE = {
         'age_penalty_excellent': 0.12,
         'label': 'adduction',
     },
+    # Glenohumeral flexion band (model cap ~90°), not overhead HT ROM.
+    'flexion': {
+        'rom_excellent': 88.0,
+        'rom_moderate': 65.0,
+        'rom_shoulder_level': 45.0,
+        'rom_full': 90.0,
+        'rom_maximum': 95.0,
+        'clamp_excellent': (55, 95),
+        'clamp_moderate': (40, 85),
+        'clamp_full': (60, 95),
+        'clamp_shoulder': (30, 70),
+        'age_penalty_excellent': 0.25,
+        'label': 'flexion',
+    },
 }
 
 
@@ -253,7 +267,7 @@ def extract_session_metrics(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     attempt_peaks = speed.get('speedAttemptPeaks') or []
 
     stab_results = stab.get('results') or {}
-    # Support 2-phase (adduction) and 4-phase (abduction) stability results.
+    # Support 2-phase (adduction/flexion) and 4-phase (abduction) stability results.
     # Keys may be int or str depending on JSON round-trip.
     phase_sds: List[float] = []
     if isinstance(stab_results, dict):

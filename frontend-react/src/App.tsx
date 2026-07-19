@@ -10,6 +10,7 @@ import Dashboard from './pages/Dashboard';
 import TestSelection from './pages/TestSelection';
 import AbductionTest from './pages/tests/AbductionTest';
 import AdductionTest from './pages/tests/AdductionTest';
+import FlexionTest from './pages/tests/FlexionTest';
 import StandardTestPage from './pages/tests/StandardTestPage';
 import AnalysisReport from './pages/AnalysisReport';
 
@@ -43,16 +44,17 @@ export default function App() {
         <Route path="/dashboard" element={session ? <Dashboard /> : <Navigate to="/login" replace />} />
         <Route path="/tests" element={session ? <TestSelection /> : <Navigate to="/login" replace />} />
 
-        {/* Dedicated coronal-plane tests (separate pages + API namespaces) */}
+        {/* Dedicated movement tests (separate pages + API namespaces) */}
         <Route path="/test/abduction" element={session ? <AbductionTest /> : <Navigate to="/login" replace />} />
         <Route path="/test/adduction" element={session ? <AdductionTest /> : <Navigate to="/login" replace />} />
+        <Route path="/test/flexion" element={session ? <FlexionTest /> : <Navigate to="/login" replace />} />
 
         {/* Legacy combined routes */}
         <Route path="/test/abduction-adduction" element={<Navigate to="/test/abduction" replace />} />
         <Route path="/test/flexion-extension" element={<Navigate to="/test/flexion" replace />} />
         <Route path="/test/horizontal-abduction-adduction" element={<Navigate to="/tests" replace />} />
 
-        {/* Other movements (flexion, IR, ER, …) until they get dedicated pages */}
+        {/* Remaining movements (extension, IR, ER, …) until they get dedicated pages */}
         <Route path="/test/:testId" element={session ? <StandardTestPage /> : <Navigate to="/login" replace />} />
 
         <Route path="/login" element={!session ? <Login /> : <Navigate to="/" replace />} />

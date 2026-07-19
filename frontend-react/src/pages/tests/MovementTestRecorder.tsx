@@ -623,8 +623,11 @@ export default function MovementTestRecorder({ movementId }: MovementTestRecorde
             const attempt = chartData.speedAttempt || 1;
             const total = chartData.speedAttemptTotal || 3;
             const livePeak = chartData.speedCurrentRampPeak ?? chartData.speedPeakAngularVelocity ?? 0;
-            const isAdduct = movement?.mlMovementId === 'adduction';
-            const moveVerb = 'raise out to the side';
+            const mid = movement?.mlMovementId;
+            const moveVerb =
+                mid === 'flexion' ? 'raise forward' :
+                mid === 'adduction' ? 'raise out to the side' :
+                'raise out to the side';
             const phaseTitle =
                 phase === 'countdown' ? 'Get ready — keep arm down at your side' :
                 phase === 'ready' ? `Attempt ${attempt}/${total} — ${moveVerb} as fast as you can` :
@@ -633,11 +636,12 @@ export default function MovementTestRecorder({ movementId }: MovementTestRecorde
                 `Complete — best ${(chartData.bestPeakAngularVelocity ?? chartData.peakAngularVelocity ?? 0).toFixed(1)} °/s`;
 
             if (!chartData.speedTestComplete) {
+                const fallbackTargets = movement?.stabilityFallbackTargets ?? [];
                 const maxAngle =
                     chartData.speedUserMaxAngle ||
-                    movement?.stabilityFallbackTargets?.[3] ||
+                    fallbackTargets[fallbackTargets.length - 1] ||
                     150;
-                const leaveBaselineThreshold = isAdduct ? 10 : 15;
+                const leaveBaselineThreshold = mid === 'adduction' ? 10 : 15;
                 const enterBaselineThreshold = 5;
                 const activeColor = phase === 'ramp' ? '#22c55e' : phase === 'rest' ? '#3b82f6' : '#f59e0b';
 

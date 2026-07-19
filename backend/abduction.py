@@ -51,6 +51,18 @@ MOVEMENT_CONFIGS = {
         'speed_ramp_start': 10.0,
         'ref_max': 100.0,
     },
+    # Sagittal flexion on same IMU roll channel (relative mapping):
+    # arm-down baseline → raise forward; shoulder level ≈ ~90° relative.
+    # Stability: 2 holds — mid (~45°) then user's ROM max from part 1.
+    'flexion': {
+        'rom_sign': 1.0,
+        'default_max_rom': 90.0,
+        'stability_n_phases': 2,
+        'stability_mid_deg': 45.0,
+        'stability_fallback': (45.0, 90.0),
+        'speed_ramp_start': 15.0,
+        'ref_max': 110.0,
+    },
 }
 
 active_movement = 'abduction'
@@ -77,7 +89,7 @@ def _stability_n_phases(movement=None) -> int:
 def _build_stability_targets(user_max):
     """Build hold targets for the active movement.
 
-    Adduction (2 phases): fixed mid ~33°, then user's ROM max from part 1.
+    Two-phase (adduction/flexion): fixed mid, then user's ROM max from part 1.
     Abduction (4 phases): fractions of user max (legacy).
     """
     cfg = _movement_cfg()
@@ -86,7 +98,7 @@ def _build_stability_targets(user_max):
     n = int(cfg.get('stability_n_phases', 4))
 
     if n == 2:
-        mid = float(cfg.get('stability_mid_deg', 33.0))
+        mid = float(cfg.get('stability_mid_deg', 45.0))
         # Keep mid below max so the two holds stay distinct
         if max_angle <= mid + 5:
             mid = max(10.0, round(max_angle * 0.65, 1))
@@ -531,7 +543,7 @@ def _data_stability_payload(movement: str | None = None):
     }
 
 
-# --- Namespaced routes (preferred): /abduction/... and /adduction/... ---
+# --- Namespaced routes (preferred): /abduction|adduction|flexion/... ---
 
 @abduction_bp.route('/<movement>/reset', methods=['GET', 'POST'])
 def reset_session_ns(movement):
