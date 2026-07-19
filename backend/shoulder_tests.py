@@ -1,16 +1,16 @@
 """
-Shoulder coronal-plane IMU tests (abduction / adduction).
+Shared shoulder IMU test pipeline (ROM / Stability / Speed).
 
-Handles ROM, Stability, and Speed recording via a shared pipeline.
-Movement is selected with ?movement=abduction|adduction on toggle start
-(default: abduction — preserves prior behavior).
+Handles abduction, adduction, flexion, and extension via MOVEMENT_CONFIGS.
+Movement is selected by URL namespace, e.g. /flexion/toggle_recording/...
+(default movement: abduction).
 """
 
 import time
 import statistics
 from flask import Blueprint, request
 
-abduction_bp = Blueprint('abduction', __name__)
+shoulder_tests_bp = Blueprint('shoulder_tests', __name__)
 
 # ---------------------------------------------------------------------------
 # Shared reference to latestIMU — set by server.py at startup
@@ -570,27 +570,27 @@ def _data_stability_payload(movement: str | None = None):
 
 # --- Namespaced routes (preferred): /abduction|adduction|flexion|extension/... ---
 
-@abduction_bp.route('/<movement>/reset', methods=['GET', 'POST'])
+@shoulder_tests_bp.route('/<movement>/reset', methods=['GET', 'POST'])
 def reset_session_ns(movement):
     return _reset_session(movement)
 
 
-@abduction_bp.route('/<movement>/toggle_recording/<test_type>/<state>')
+@shoulder_tests_bp.route('/<movement>/toggle_recording/<test_type>/<state>')
 def toggle_recording_ns(movement, test_type, state):
     return _toggle_recording_impl(test_type, state, movement)
 
 
-@abduction_bp.route('/<movement>/data/rom')
+@shoulder_tests_bp.route('/<movement>/data/rom')
 def data_rom_ns(movement):
     return _data_rom_payload(movement)
 
 
-@abduction_bp.route('/<movement>/data/stability')
+@shoulder_tests_bp.route('/<movement>/data/stability')
 def data_stability_ns(movement):
     return _data_stability_payload(movement)
 
 
-@abduction_bp.route('/<movement>/data/speed')
+@shoulder_tests_bp.route('/<movement>/data/speed')
 def data_speed_ns(movement):
     snap = _speed_snapshot()
     snap['movement'] = _normalize_movement(movement)
@@ -599,29 +599,29 @@ def data_speed_ns(movement):
 
 # --- Legacy un-namespaced routes (still supported) ---
 
-@abduction_bp.route('/reset', methods=['GET', 'POST'])
+@shoulder_tests_bp.route('/reset', methods=['GET', 'POST'])
 def reset_session_legacy():
     movement = request.args.get('movement') or active_movement or 'abduction'
     return _reset_session(movement)
 
 
-@abduction_bp.route('/toggle_recording/<test_type>/<state>')
+@shoulder_tests_bp.route('/toggle_recording/<test_type>/<state>')
 def toggle_recording(test_type, state):
     movement = request.args.get('movement') or 'abduction'
     return _toggle_recording_impl(test_type, state, movement)
 
 
-@abduction_bp.route('/data/rom')
+@shoulder_tests_bp.route('/data/rom')
 def data_rom():
     return _data_rom_payload(active_movement)
 
 
-@abduction_bp.route('/data/stability')
+@shoulder_tests_bp.route('/data/stability')
 def data_stability():
     return _data_stability_payload(active_movement)
 
 
-@abduction_bp.route('/data/speed')
+@shoulder_tests_bp.route('/data/speed')
 def data_speed():
     return _speed_snapshot()
 
@@ -644,7 +644,7 @@ def data_collection_loop():
     global speed_prev_roll_for_velocity, speed_prev_time_for_velocity
     global speed_best_peak, speed_avg_peak, speed_ramp_start_angle
 
-    print("[Abduction] Data collection thread started")
+    print("[ShoulderTests] Data collection thread started")
 
     while True:
         try:

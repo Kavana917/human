@@ -15,7 +15,7 @@ from supabase import create_client
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
 # Import test modules
-import abduction
+import shoulder_tests
 import analysis
 
 app = Flask(__name__)
@@ -78,8 +78,8 @@ def get_raw_data():
 # Register test blueprints
 # ===========================================================================
 
-abduction.init(get_latest_imu)
-app.register_blueprint(abduction.abduction_bp)
+shoulder_tests.init(get_latest_imu)
+app.register_blueprint(shoulder_tests.shoulder_tests_bp)
 
 # Register analysis blueprint
 analysis.init(SUPABASE_URL, SUPABASE_KEY, GROQ_API_KEY)
@@ -88,7 +88,7 @@ app.register_blueprint(analysis.analysis_bp)
 try:
     from kinematics_model import warm_load
     warm_load()
-    print("  Kinematics k-NN models warmed (abduction, adduction, flexion, …)")
+    print("  Kinematics k-NN models warmed (abduction, adduction, flexion, extension, …)")
 except Exception as e:
     print(f"  WARNING: Kinematics model warm-load skipped: {e}")
 
@@ -98,8 +98,8 @@ except Exception as e:
 # ===========================================================================
 
 if __name__ == '__main__':
-    # Start background data collection threads for each test module
-    t = threading.Thread(target=abduction.data_collection_loop, daemon=True)
+    # Shared ROM/stability/speed collection for all wired shoulder movements
+    t = threading.Thread(target=shoulder_tests.data_collection_loop, daemon=True)
     t.start()
 
     print("=" * 60)
@@ -108,10 +108,7 @@ if __name__ == '__main__':
     print("=" * 60)
     print("  POST /update            <- ESP32 IMU data")
     print("  GET  /data              <- Raw IMU data")
-    print("  GET  /toggle_recording  <- Start/stop tests")
-    print("  GET  /data/rom          <- ROM test data")
-    print("  GET  /data/stability    <- Stability test data")
-    print("  GET  /data/speed        <- Speed test data")
+    print("  /abduction|adduction|flexion|extension/...  <- shoulder tests")
     print("  GET  /api/analysis/30day   <- 30-day progress report")
     print("  GET  /api/analysis/session <- ML demographic session comparison")
     print("=" * 60)
