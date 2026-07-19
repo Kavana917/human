@@ -63,7 +63,7 @@ MOVEMENT_BANDS = {
     },
     "Arm - Adduction": {
         "rom": (22, 48), "speed": (45, 95), "sd": (3.8, 1.2),
-        "ref_max": 52, "phases": [15, 25, 35, 45],
+        "ref_max": 52, "phases": [33, 48],
     },
     "Arm - Flexion": {
         "rom": (55, 85), "speed": (50, 105), "sd": (4.2, 1.4),

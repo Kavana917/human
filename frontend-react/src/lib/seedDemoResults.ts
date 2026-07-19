@@ -33,7 +33,7 @@ const MOVEMENT_BANDS: Record<
     sdStart: 3.8,
     sdEnd: 1.2,
     refMax: 52,
-    phaseTargets: [15, 25, 35, 45],
+    phaseTargets: [33, 48],
   },
   'Arm - Flexion': {
     romStart: 55,

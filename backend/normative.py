@@ -1,15 +1,15 @@
 """
-Injury-aware progress targets for shoulder abduction tests.
+Injury-aware progress targets for shoulder tests.
 
 Used for 30-day recovery prediction and chart reference bands — not as the
 primary session comparison (that is the demographic k-NN model).
-Thresholds adjust for age, gender, activity level, and injury status.
+Thresholds adjust for age, gender, activity level, injury status, and movement.
 """
 
 from typing import Any, Dict, List, Optional
 
 
-# Peak angular velocity (°/s) targets for max-effort abduction ramps (best of 3)
+# Peak angular velocity (°/s) targets for max-effort ramps (best of 3) — abduction scale
 ACTIVITY_SPEED = {
     'sedentary': {'excellent': 80.0, 'good': 50.0},
     'light': {'excellent': 95.0, 'good': 60.0},
@@ -18,14 +18,50 @@ ACTIVITY_SPEED = {
     'athlete': {'excellent': 160.0, 'good': 110.0},
 }
 
+# Adduction ramps are smaller; scale abduction speed bands
+ADDUCTION_SPEED_SCALE = 0.75
+
 DEFAULT_ACTIVITY = 'moderate'
+
+# Base ROM bands before age/gender/injury adjustments
+MOVEMENT_ROM_BASE = {
+    'abduction': {
+        'rom_excellent': 150.0,
+        'rom_moderate': 90.0,
+        'rom_shoulder_level': 90.0,
+        'rom_full': 150.0,
+        'rom_maximum': 180.0,
+        'clamp_excellent': (55, 180),
+        'clamp_moderate': (40, 160),
+        'clamp_full': (60, 180),
+        'clamp_shoulder': (50, 100),
+        'age_penalty_excellent': 0.35,
+        'label': 'abduction',
+    },
+    'adduction': {
+        'rom_excellent': 48.0,
+        'rom_moderate': 30.0,
+        'rom_shoulder_level': 25.0,
+        'rom_full': 48.0,
+        'rom_maximum': 52.0,
+        'clamp_excellent': (20, 52),
+        'clamp_moderate': (15, 45),
+        'clamp_full': (20, 52),
+        'clamp_shoulder': (12, 40),
+        'age_penalty_excellent': 0.12,
+        'label': 'adduction',
+    },
+}
 
 
 def _clamp(value: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, value))
 
 
-def get_normative_targets(profile: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def get_normative_targets(
+    profile: Optional[Dict[str, Any]] = None,
+    movement: str = 'abduction',
+) -> Dict[str, Any]:
     """
     Compute injury-aware progress targets for charts and recovery timelines.
     Not used to grade a single session against a demographic peer model.
@@ -35,57 +71,62 @@ def get_normative_targets(profile: Optional[Dict[str, Any]] = None) -> Dict[str,
     gender = (profile.get('gender') or 'other').lower()
     activity = (profile.get('activity_level') or DEFAULT_ACTIVITY).lower()
     has_injury = bool(profile.get('has_injury'))
+    movement = (movement or 'abduction').strip().lower()
+    if movement not in MOVEMENT_ROM_BASE:
+        movement = 'abduction'
+    base = MOVEMENT_ROM_BASE[movement]
 
     if activity not in ACTIVITY_SPEED:
         activity = DEFAULT_ACTIVITY
 
     speed_cfg = ACTIVITY_SPEED[activity]
+    speed_scale = ADDUCTION_SPEED_SCALE if movement == 'adduction' else 1.0
 
-    # Base ROM (healthy adult reference, degrees)
-    rom_excellent = 150.0
-    rom_moderate = 90.0
-    rom_shoulder_level = 90.0
-    rom_full_abduction = 150.0
-    rom_maximum = 180.0
+    rom_excellent = base['rom_excellent']
+    rom_moderate = base['rom_moderate']
+    rom_shoulder_level = base['rom_shoulder_level']
+    rom_full = base['rom_full']
+    rom_maximum = base['rom_maximum']
 
-    # Age: gradual decline after 30 (~0.35°/year on excellent threshold)
+    # Age: gradual decline after 30
     if age > 30:
-        age_penalty = (age - 30) * 0.35
+        age_penalty = (age - 30) * base['age_penalty_excellent']
         rom_excellent -= age_penalty
         rom_moderate -= age_penalty * 0.45
-        rom_full_abduction -= age_penalty * 0.5
+        rom_full -= age_penalty * 0.5
 
     # Gender: small population norm differences
     if gender == 'female':
-        rom_excellent -= 3.0
-        rom_moderate -= 2.0
+        rom_excellent -= 3.0 if movement == 'abduction' else 1.0
+        rom_moderate -= 2.0 if movement == 'abduction' else 0.5
     elif gender == 'other':
-        rom_excellent -= 1.5
+        rom_excellent -= 1.5 if movement == 'abduction' else 0.5
 
-    # Injury / rehab: lower expectations (~25% ROM, ~20% speed)
     injury_factor_rom = 0.72 if has_injury else 1.0
     injury_factor_speed = 0.80 if has_injury else 1.0
 
-    rom_excellent = _clamp(rom_excellent * injury_factor_rom, 55, 180)
-    rom_moderate = _clamp(rom_moderate * injury_factor_rom, 40, 160)
-    rom_full_abduction = _clamp(rom_full_abduction * injury_factor_rom, 60, 180)
-    rom_shoulder_level = _clamp(rom_shoulder_level * injury_factor_rom, 50, 100)
+    rom_excellent = _clamp(rom_excellent * injury_factor_rom, *base['clamp_excellent'])
+    rom_moderate = _clamp(rom_moderate * injury_factor_rom, *base['clamp_moderate'])
+    rom_full = _clamp(rom_full * injury_factor_rom, *base['clamp_full'])
+    rom_shoulder_level = _clamp(rom_shoulder_level * injury_factor_rom, *base['clamp_shoulder'])
 
-    speed_excellent = max(30.0, round(speed_cfg['excellent'] * injury_factor_speed, 1))
-    speed_good = max(20.0, round(speed_cfg['good'] * injury_factor_speed, 1))
+    speed_excellent = max(20.0, round(speed_cfg['excellent'] * speed_scale * injury_factor_speed, 1))
+    speed_good = max(15.0, round(speed_cfg['good'] * speed_scale * injury_factor_speed, 1))
 
     stab_excellent_sd = 2.0 if not has_injury else 2.8
     stab_moderate_sd = 4.0 if not has_injury else 5.0
 
     return {
+        'movement': movement,
         'rom_excellent': round(rom_excellent, 1),
         'rom_moderate': round(rom_moderate, 1),
         'rom_shoulder_level': round(rom_shoulder_level, 1),
-        'rom_full_abduction': round(rom_full_abduction, 1),
+        # Keep legacy key name for frontend chart wiring
+        'rom_full_abduction': round(rom_full, 1),
+        'rom_full': round(rom_full, 1),
         'rom_maximum': round(rom_maximum, 1),
         'speed_excellent_deg_s': speed_excellent,
         'speed_good_deg_s': speed_good,
-        # Legacy aliases kept for older frontend builds during transition
         'speed_excellent_reps': speed_excellent,
         'speed_good_reps': speed_good,
         'stability_excellent_sd': stab_excellent_sd,
@@ -95,6 +136,7 @@ def get_normative_targets(profile: Optional[Dict[str, Any]] = None) -> Dict[str,
             'gender': gender,
             'activity_level': activity,
             'has_injury': has_injury,
+            'movement': movement,
         },
     }
 
@@ -131,7 +173,6 @@ def _tier_stability(avg_sd: float, norms: Dict[str, Any]) -> Dict[str, Any]:
     else:
         tier, label, color = 'needs_improvement', 'Unstable', 'red'
 
-    # Lower SD is better — invert percent vs excellent threshold
     if avg_sd <= 0:
         pct = 100.0
     else:
@@ -174,7 +215,6 @@ def _tier_speed(peak_deg_s: Optional[float], norms: Dict[str, Any]) -> Optional[
         'percent_of_ideal': pct,
         'expected_excellent_deg_s': exc,
         'expected_good_deg_s': good,
-        # Legacy aliases for frontend transition
         'expected_excellent_reps': exc,
         'expected_good_reps': good,
     }
@@ -213,11 +253,14 @@ def extract_session_metrics(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     attempt_peaks = speed.get('speedAttemptPeaks') or []
 
     stab_results = stab.get('results') or {}
+    # Support 2-phase (adduction) and 4-phase (abduction) stability results.
+    # Keys may be int or str depending on JSON round-trip.
     phase_sds: List[float] = []
-    for i in range(4):
-        phase = stab_results.get(str(i))
-        if phase and 'std_deviation' in phase:
-            phase_sds.append(float(phase['std_deviation']))
+    if isinstance(stab_results, dict):
+        for key in sorted(stab_results.keys(), key=lambda k: int(k) if str(k).isdigit() else 0):
+            phase = stab_results.get(key)
+            if isinstance(phase, dict) and 'std_deviation' in phase:
+                phase_sds.append(float(phase['std_deviation']))
 
     avg_sd = sum(phase_sds) / len(phase_sds) if phase_sds else None
 
@@ -231,12 +274,16 @@ def extract_session_metrics(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     }
 
 
-def assess_session(metrics: Dict[str, Any], profile: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def assess_session(
+    metrics: Dict[str, Any],
+    profile: Optional[Dict[str, Any]] = None,
+    movement: str = 'abduction',
+) -> Dict[str, Any]:
     """
     Optional helper: tier metrics against injury-aware progress targets.
     Kept for tooling / experiments; primary session grading uses the ML model.
     """
-    norms = get_normative_targets(profile)
+    norms = get_normative_targets(profile, movement=movement)
 
     rom = _tier_rom(metrics['peak_rom'], norms)
     stability = _tier_stability(metrics['avg_sd'], norms) if metrics.get('avg_sd') is not None else None

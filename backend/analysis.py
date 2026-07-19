@@ -92,14 +92,15 @@ def extract_sessions(rows):
         except (TypeError, ValueError):
             peak_av = None
 
-        # --- Stability ---
+        # --- Stability (2 or 4 holds depending on movement) ---
         stab = row.get('stability_data') or {}
         stab_results = stab.get('results') or {}
         phase_sds = []
-        for i in range(4):
-            phase = stab_results.get(str(i))
-            if phase and 'std_deviation' in phase:
-                phase_sds.append(phase['std_deviation'])
+        if isinstance(stab_results, dict):
+            for key in sorted(stab_results.keys(), key=lambda k: int(k) if str(k).isdigit() else 0):
+                phase = stab_results.get(key)
+                if isinstance(phase, dict) and 'std_deviation' in phase:
+                    phase_sds.append(phase['std_deviation'])
 
         avg_sd = sum(phase_sds) / len(phase_sds) if phase_sds else None
 
@@ -344,7 +345,8 @@ def generate_ai_insights(sessions, profile, recovery_slope, consistency_index,
         date_str = s['date'].strftime('%b %d')
         phase_str = ""
         if s['phase_sds']:
-            phase_str = f" [4 phases: {', '.join(f'{sd:.1f}°' for sd in s['phase_sds'])}]"
+            n = len(s['phase_sds'])
+            phase_str = f" [{n} phase{'s' if n != 1 else ''}: {', '.join(f'{sd:.1f}°' for sd in s['phase_sds'])}]"
         peak_av_str = (
             f"{s['peak_angular_velocity']:.1f}°/s"
             if s.get('peak_angular_velocity') is not None else "N/A"
@@ -385,7 +387,7 @@ def generate_ai_insights(sessions, profile, recovery_slope, consistency_index,
     pred_section = "Cannot predict (insufficient data or no progress)"
     if predicted_recovery and predicted_recovery.get('base_days') is not None:
         pred_section = (
-            f"- Target ROM: {predicted_recovery['target_rom']}° (full abduction)\n"
+            f"- Target ROM: {predicted_recovery['target_rom']}°\n"
             f"- Estimated days at current rate: {predicted_recovery['base_days']:.0f}\n"
             f"- Adjusted for consistency: {predicted_recovery['adjusted_days']:.0f} days\n"
             f"- Confidence: {predicted_recovery['confidence']}"
@@ -614,8 +616,9 @@ def analysis_session():
             }), 200
 
         # Injury-aware progress bands (used by charts / 30-day), not session grades
-        progress_targets = get_normative_targets(profile)
-        ml_expected = predict_expected(profile, movement=movement_for_test_type(test_type))
+        movement = movement_for_test_type(test_type)
+        progress_targets = get_normative_targets(profile, movement=movement)
+        ml_expected = predict_expected(profile, movement=movement)
         ml_comparison = build_ml_comparison(metrics, ml_expected)
 
         created = row.get('created_at', '')
@@ -711,10 +714,11 @@ def analysis_30day():
             }, f, indent=2)
 
         profile = fetch_profile(user_id)
+        movement = movement_for_test_type(test_type)
         # Injury-aware progress targets for recovery prediction + chart reference lines
-        progress_targets = get_normative_targets(profile)
+        progress_targets = get_normative_targets(profile, movement=movement)
         norms = progress_targets
-        target_rom = norms['rom_full_abduction']
+        target_rom = norms.get('rom_full') or norms['rom_full_abduction']
 
         # --- Extract sessions ---
         sessions = extract_sessions(rows)
@@ -779,7 +783,7 @@ def analysis_30day():
                     session_date = created
                 session_meta = {'session_date': session_date, 'created_at': created}
 
-        ml_expected = predict_expected(profile, movement=movement_for_test_type(test_type))
+        ml_expected = predict_expected(profile, movement=movement)
         ml_comparison = build_ml_comparison(latest_metrics, ml_expected)
 
         # --- Chart data ---

@@ -13,6 +13,12 @@ export type MlMovementId =
   | 'internal_rotation'
   | 'external_rotation';
 
+export interface RomAnnotation {
+  value: number;
+  label: string;
+  color: string;
+}
+
 export interface ArmMovementConfig {
   /** URL segment: /test/<id> */
   id: string;
@@ -26,10 +32,19 @@ export interface ArmMovementConfig {
   mlMovementId: MlMovementId;
   videoSrc: string;
   icon: LucideIcon;
-  /** Primary IMU angle for this motion (recording axis wiring comes later) */
+  /** Primary IMU angle for this motion */
   hardwareAngle: 'roll' | 'pitch' | 'yaw';
   romInstructions: string[];
   expectedRanges: string;
+  /** ROM chart Y max */
+  romYMax: number;
+  /** Horizontal reference lines on ROM chart */
+  romAnnotations: RomAnnotation[];
+  /** Fallback stability hold targets when no ROM yet */
+  stabilityFallbackTargets: number[];
+  speedInstructions: string[];
+  speedTips: string;
+  stabilityInstructions: string[];
 }
 
 export const ARM_MOVEMENTS: ArmMovementConfig[] = [
@@ -50,24 +65,64 @@ export const ARM_MOVEMENTS: ArmMovementConfig[] = [
       'Click "Stop Recording" when complete.',
     ],
     expectedRanges: 'Shoulder level (~90°) | Full abduction (~150–175° GH)',
+    romYMax: 200,
+    romAnnotations: [
+      { value: 90, label: 'Shoulder Level (90°)', color: 'rgba(34, 197, 94, 0.8)' },
+      { value: 150, label: 'Full Abduction (150°)', color: 'rgba(59, 130, 246, 0.8)' },
+      { value: 180, label: 'Maximum (180°)', color: 'rgba(239, 68, 68, 0.8)' },
+    ],
+    stabilityFallbackTargets: [45, 90, 135, 150],
+    speedInstructions: [
+      'Click "Start Recording" to begin.',
+      'During the 3-second countdown, keep your arm down at your side.',
+      'You will do 3 max-effort ramps: raise your arm out to the side as fast as possible, then return down.',
+      'Rest briefly between attempts with the arm down.',
+    ],
+    speedTips: 'Peak °/s is measured during the raise. Complete ROM first so speed uses your max angle.',
+    stabilityInstructions: [
+      'Complete the ROM test first so targets match your range.',
+      'Start with the arm down; click Start Recording.',
+      'Move to each prompted angle and hold steady (5 s countdown + 5 s hold).',
+      'Targets are typically near 45°, 90°, 135°, and your max.',
+    ],
   },
   {
     id: 'adduction',
     title: 'Adduction',
-    desc: 'Bring the arm back in toward the body from the side (coronal plane).',
+    desc: 'From arm-down neutral, raise the arm out to the side (same IMU sense as abduction; smaller ROM band).',
     testType: 'Arm - Adduction',
     mlMovementId: 'adduction',
     videoSrc: abductionVideo,
     icon: ArrowDownLeft,
     hardwareAngle: 'roll',
     romInstructions: [
-      'Start with the arm raised slightly out to the side.',
-      'Click "Start Recording" to calibrate the baseline.',
-      'Slowly bring the arm in toward the body as far as comfortable.',
-      'Hold briefly at your maximum adduction, then return.',
+      'Stand upright with both arms relaxed down at your sides.',
+      'Click "Start Recording" — this arm-down pose is 0° (neutral baseline).',
+      'Slowly raise the testing arm out to the side (away from the body).',
+      'Aim for at least ~50° of relative rise from baseline, then lower back down.',
       'Click "Stop Recording" when complete.',
     ],
-    expectedRanges: 'Typical adduction ~30–50° (glenohumeral)',
+    expectedRanges: 'Target relative ROM ≥ ~50° from arm-down (IMU: ~−90° at side → ~0° at shoulder level)',
+    romYMax: 110,
+    romAnnotations: [
+      { value: 25, label: 'Partial (25°)', color: 'rgba(34, 197, 94, 0.8)' },
+      { value: 50, label: 'Target (50°)', color: 'rgba(59, 130, 246, 0.8)' },
+      { value: 90, label: 'Shoulder level (~90°)', color: 'rgba(239, 68, 68, 0.8)' },
+    ],
+    stabilityFallbackTargets: [33, 50],
+    speedInstructions: [
+      'Click "Start Recording" to begin.',
+      'During the 3-second countdown, keep your arm down at your side (0° baseline).',
+      'You will do 3 max-effort ramps: raise the arm out to the side as fast as possible, then return down.',
+      'Rest briefly with the arm down between attempts.',
+    ],
+    speedTips: 'Peak °/s is measured on the raise from arm-down. Aim for a clear rise past ~50° relative.',
+    stabilityInstructions: [
+      'Complete the ROM test first — your max angle becomes the second hold target.',
+      'Start with the arm down; click Start Recording.',
+      'Hold 1: raise to about 30–35° and stay steady (5 s countdown + 5 s hold).',
+      'Hold 2: raise to your ROM max from part 1 and hold the same way.',
+    ],
   },
   {
     id: 'flexion',
@@ -86,6 +141,22 @@ export const ARM_MOVEMENTS: ArmMovementConfig[] = [
       'Click "Stop Recording" when complete.',
     ],
     expectedRanges: 'Model / GH flexion band ~65–90° (not full overhead clinical ROM)',
+    romYMax: 110,
+    romAnnotations: [
+      { value: 45, label: 'Mid (45°)', color: 'rgba(34, 197, 94, 0.8)' },
+      { value: 70, label: 'Typical (70°)', color: 'rgba(59, 130, 246, 0.8)' },
+      { value: 90, label: 'Cap (90°)', color: 'rgba(239, 68, 68, 0.8)' },
+    ],
+    stabilityFallbackTargets: [30, 50, 70, 80],
+    speedInstructions: [
+      'Click "Start Recording" to begin.',
+      'Keep the arm down during the countdown.',
+      'Perform 3 max-effort forward raises, returning down between attempts.',
+    ],
+    speedTips: 'Recording for this movement will be fully wired in a later pass.',
+    stabilityInstructions: [
+      'Complete ROM first, then hold at prompted flexion angles.',
+    ],
   },
   {
     id: 'extension',
@@ -104,6 +175,21 @@ export const ARM_MOVEMENTS: ArmMovementConfig[] = [
       'Click "Stop Recording" when complete.',
     ],
     expectedRanges: 'Typical extension ~25–50° (glenohumeral)',
+    romYMax: 70,
+    romAnnotations: [
+      { value: 15, label: 'Light (15°)', color: 'rgba(34, 197, 94, 0.8)' },
+      { value: 35, label: 'Typical (35°)', color: 'rgba(59, 130, 246, 0.8)' },
+      { value: 50, label: 'Full (50°)', color: 'rgba(239, 68, 68, 0.8)' },
+    ],
+    stabilityFallbackTargets: [15, 25, 35, 45],
+    speedInstructions: [
+      'Click "Start Recording" to begin.',
+      'Keep the arm at the side during countdown, then perform 3 max-effort extensions.',
+    ],
+    speedTips: 'Recording for this movement will be fully wired in a later pass.',
+    stabilityInstructions: [
+      'Complete ROM first, then hold at prompted extension angles.',
+    ],
   },
   {
     id: 'internal-rotation',
@@ -122,6 +208,20 @@ export const ARM_MOVEMENTS: ArmMovementConfig[] = [
       'Click "Stop Recording" when complete.',
     ],
     expectedRanges: 'Typical internal rotation ~50–85° (glenohumeral)',
+    romYMax: 100,
+    romAnnotations: [
+      { value: 30, label: 'Light (30°)', color: 'rgba(34, 197, 94, 0.8)' },
+      { value: 55, label: 'Typical (55°)', color: 'rgba(59, 130, 246, 0.8)' },
+      { value: 85, label: 'Full (85°)', color: 'rgba(239, 68, 68, 0.8)' },
+    ],
+    stabilityFallbackTargets: [25, 45, 60, 75],
+    speedInstructions: [
+      'Click "Start Recording", wait for countdown, then perform 3 max-effort inward rotations.',
+    ],
+    speedTips: 'Recording for this movement will be fully wired in a later pass.',
+    stabilityInstructions: [
+      'Complete ROM first, then hold at prompted internal-rotation angles.',
+    ],
   },
   {
     id: 'external-rotation',
@@ -140,6 +240,20 @@ export const ARM_MOVEMENTS: ArmMovementConfig[] = [
       'Click "Stop Recording" when complete.',
     ],
     expectedRanges: 'Typical external rotation ~45–80° (glenohumeral)',
+    romYMax: 100,
+    romAnnotations: [
+      { value: 25, label: 'Light (25°)', color: 'rgba(34, 197, 94, 0.8)' },
+      { value: 50, label: 'Typical (50°)', color: 'rgba(59, 130, 246, 0.8)' },
+      { value: 80, label: 'Full (80°)', color: 'rgba(239, 68, 68, 0.8)' },
+    ],
+    stabilityFallbackTargets: [25, 40, 55, 70],
+    speedInstructions: [
+      'Click "Start Recording", wait for countdown, then perform 3 max-effort outward rotations.',
+    ],
+    speedTips: 'Recording for this movement will be fully wired in a later pass.',
+    stabilityInstructions: [
+      'Complete ROM first, then hold at prompted external-rotation angles.',
+    ],
   },
 ];
 

@@ -1374,7 +1374,7 @@ export default function AnalysisReport() {
                                         <>
                                             <span>·</span>
                                             <span>
-                                                ROM goal {progressTargets.rom_full_abduction}°
+                                                ROM goal {(progressTargets as { rom_full?: number }).rom_full ?? progressTargets.rom_full_abduction}°
                                                 {hasInjury ? ' (injury-aware)' : ''}
                                             </span>
                                         </>
